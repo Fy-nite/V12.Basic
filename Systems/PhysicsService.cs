@@ -1,0 +1,250 @@
+using System;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Collections.Generic;
+using BepuPhysics;
+using BepuPhysics.Collidables;
+using BepuPhysics.CollisionDetection;
+using BepuPhysics.Constraints;
+using BepuUtilities;
+using BepuUtilities.Memory;
+using V12.Core.Core.Interfaces;
+using V12.Components;
+using V12.Core.Interfaces.Renderer;
+using BepuPhysics.Trees;
+using V12.Basic.Components;
+
+namespace V12.Core.Systems
+{
+    public class PhysicsService : IGameService
+    {
+        public Simulation Simulation { get; private set; }
+        private BufferPool _bufferPool;
+        private ThreadDispatcher _threadDispatcher;
+
+        public void Initialize(GameRoot g)
+        {
+            _bufferPool = new BufferPool();
+            _threadDispatcher = new ThreadDispatcher(Environment.ProcessorCount); 
+            
+            // Simulation.Create now requires a SolveDescription
+            Simulation = Simulation.Create(_bufferPool, new NarrowPhaseCallbacks(), new PoseIntegratorCallbacks(new Vector3(0, -9.81f, 0)), new SolveDescription(8, 1));
+        }
+
+        public void Update(GameRoot g) {}
+        public void Update(float deltaTime)
+        {
+            if (deltaTime <= 0) return;
+            Simulation.Timestep(deltaTime, _threadDispatcher);
+        }
+
+        public BodyHandle CreateBodyForElement(V12.Core.Core.Interfaces.IWorldElement element)
+        {
+            var collider = element.GetComponent<ColliderComponent>();
+            TypedIndex shapeIndex;
+
+            if (collider != null)
+            {
+                shapeIndex = CreateShape(element, collider);
+            }
+            else
+            {
+                // Fallback to default box
+                shapeIndex = Simulation.Shapes.Add(new Box(1f, 2f, 1f));
+            }
+            
+            // Get transform if available, default to 1.5 height
+            var transform = element.GetComponent<V12.Components.TransformComponent>();
+            var pos = transform != null ? new System.Numerics.Vector3(transform.X, transform.Y, transform.Z) : new System.Numerics.Vector3(0, 1.5f, 0);
+            var rot = transform != null ? Quaternion.CreateFromYawPitchRoll(transform.RY, transform.RX, transform.RZ) : Quaternion.Identity;
+
+            var physicsComp = element.GetComponent<PhysicsBodyComponent>();
+            
+            // For custom meshes, we might want to default to kinematic or static if not specified
+            bool isKinematic = physicsComp != null ? physicsComp.IsKinematic : true;
+
+            var description = isKinematic 
+                ? BodyDescription.CreateKinematic(new RigidPose(pos, rot), new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f))
+                : BodyDescription.CreateDynamic(new RigidPose(pos, rot), new BodyInertia { InverseMass = 1f }, new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f));
+            
+            return Simulation.Bodies.Add(description);
+        }
+
+        private TypedIndex CreateShape(IWorldElement element, ColliderComponent collider)
+        {
+            switch (collider.Shape)
+            {
+                case MeshShape.Sphere:
+                    return Simulation.Shapes.Add(new Sphere(collider.Width * 0.5f));
+                case MeshShape.Capsule:
+                    return Simulation.Shapes.Add(new Capsule(collider.Width * 0.5f, collider.Height));
+                case MeshShape.Cylinder:
+                    return Simulation.Shapes.Add(new Cylinder(collider.Width * 0.5f, collider.Height));
+                case MeshShape.Plane:
+                    // Bepu doesn't have an infinite plane shape in the same way, usually use a large box or a specialized shape
+                    return Simulation.Shapes.Add(new Box(collider.Width, 0.1f, collider.Depth));
+                case MeshShape.Custom:
+                    var meshRenderable = element.GetComponent<IMeshRenderable>();
+                    if (meshRenderable != null)
+                    {
+                        return CreateMeshShape(meshRenderable);
+                    }
+                    goto default;
+                case MeshShape.Box:
+                default:
+                    return Simulation.Shapes.Add(new Box(collider.Width, collider.Height, collider.Depth));
+            }
+        }
+
+        private TypedIndex CreateMeshShape(IMeshRenderable mesh)
+        {
+            var points = mesh.MeshPoints;
+            var indices = mesh.Indices;
+
+            if (points == null || indices == null || indices.Length < 3)
+            {
+                return Simulation.Shapes.Add(new Box(1f, 1f, 1f));
+            }
+
+            int triangleCount = indices.Length / 3;
+            _bufferPool.Take<BepuPhysics.Collidables.Triangle>(triangleCount, out var triangles);
+
+            for (int i = 0; i < triangleCount; i++)
+            {
+                int i0 = (int)indices[i * 3];
+                int i1 = (int)indices[i * 3 + 1];
+                int i2 = (int)indices[i * 3 + 2];
+
+                triangles[i] = new BepuPhysics.Collidables.Triangle(
+                    new Vector3((float)points[i0 * 3], (float)points[i0 * 3 + 1], (float)points[i0 * 3 + 2]),
+                    new Vector3((float)points[i1 * 3], (float)points[i1 * 3 + 1], (float)points[i1 * 3 + 2]),
+                    new Vector3((float)points[i2 * 3], (float)points[i2 * 3 + 1], (float)points[i2 * 3 + 2])
+                );
+            }
+
+            var bepuMesh = new BepuPhysics.Collidables.Mesh(triangles, Vector3.One, _bufferPool);
+            return Simulation.Shapes.Add(bepuMesh);
+        }
+
+        public bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out RayHit hit)
+        {
+            hit = default;
+            var hitHandler = new RayHitHandler();
+            Simulation.RayCast(origin, direction, maxDistance, _bufferPool, ref hitHandler);
+
+            if (hitHandler.HitFound)
+            {
+                hit = new RayHit
+                {
+                    T = hitHandler.T,
+                    Location = origin + direction * hitHandler.T,
+                    Normal = hitHandler.Normal,
+                    Collidable = hitHandler.Collidable
+                };
+                return true;
+            }
+            return false;
+        }
+    }
+
+    public struct RayHit
+    {
+        public float T;
+        public Vector3 Location;
+        public Vector3 Normal;
+        public CollidableReference Collidable;
+    }
+
+    struct RayHitHandler : IRayHitHandler
+    {
+        public bool HitFound;
+        public float T;
+        public Vector3 Normal;
+        public CollidableReference Collidable;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool AllowTest(CollidableReference collidable) => true;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool AllowTest(CollidableReference collidable, int childIndex) => true;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void OnRayHit(in RayData ray, ref float maximumT, float t, in Vector3 normal, CollidableReference collidable, int childIndex)
+        {
+            if (t < maximumT)
+            {
+                maximumT = t;
+                HitFound = true;
+                T = t;
+                Normal = normal;
+                Collidable = collidable;
+            }
+        }
+
+        public void OnRayHit(in RayData ray, ref float maximumT, float t, Vector3 normal, CollidableReference collidable, int childIndex)
+        {
+            if (t < maximumT)
+            {
+                maximumT = t;
+                HitFound = true;
+                T = t;
+                Normal = normal;
+                Collidable = collidable;
+            }
+        }
+    }
+
+
+    public struct NarrowPhaseCallbacks : INarrowPhaseCallbacks
+    {
+        public void Initialize(Simulation simulation) { }
+        public bool AllowContactGeneration(int workerIndex, CollidableReference a, CollidableReference b, ref float speculativeMargin) => true;
+        public bool AllowContactGeneration(int workerIndex, CollidablePair pair, int childIndexA, int childIndexB) => true;
+
+        public bool ConfigureContactManifold<TManifold>(int workerIndex, CollidablePair pair, ref TManifold manifold, out PairMaterialProperties pairMaterial) where TManifold : unmanaged, IContactManifold<TManifold>
+        {
+            pairMaterial = new PairMaterialProperties(1f, 0.1f, new SpringSettings(30, 1));
+            return true;
+        }
+
+        public bool ConfigureContactManifold(int workerIndex, CollidablePair pair, int childIndexA, int childIndexB, ref ConvexContactManifold manifold)
+        {
+            return true;
+        }
+        public void Dispose() { }
+    }
+
+    public struct PoseIntegratorCallbacks : IPoseIntegratorCallbacks
+    {
+        public Vector3 Gravity;
+        Vector3Wide gravityWide;
+
+        // Use DontIntegrate instead of Nonintegrated
+        public readonly AngularIntegrationMode AngularIntegrationMode => (AngularIntegrationMode)0;
+        public readonly bool AllowSubsteppingForFocusBodies => false;
+        public bool AllowSubstepsForUnconstrainedBodies => false;
+        public readonly bool IntegrateVelocityForKinematics => false;
+
+        public PoseIntegratorCallbacks(Vector3 gravity)
+        {
+            Gravity = gravity;
+            gravityWide = default;
+        }
+
+        public void Initialize(Simulation simulation)
+        {
+            Vector3Wide.Broadcast(Gravity, out gravityWide);
+        }
+
+        public void PrepareForMultithreadedExecution(int workerCount) { }
+
+        public void PrepareForIntegration(float dt) { }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void IntegrateVelocity(Vector<int> bodyIndices, Vector3Wide position, QuaternionWide orientation, BodyInertiaWide localInertia, Vector<int> integrationMask, int workerIndex, Vector<float> dt, ref BodyVelocityWide velocity)
+        {
+            Vector3Wide.Scale(gravityWide, dt, out var gravityDelta);
+            Vector3Wide.Add(velocity.Linear, gravityDelta, out velocity.Linear);
+        }
+    }
+}
