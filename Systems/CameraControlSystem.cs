@@ -23,7 +23,7 @@ namespace V12.Core.Systems
         private float _lookY;  // pitch: positive = look up
 
         // Pitch clamping to prevent camera flipping
-        private const float MaxPitch =  MathF.PI / 2f - 0.05f; //  ~89 degrees
+        private const float MaxPitch = MathF.PI / 2f - 0.05f; //  ~89 degrees
         private const float MinPitch = -MathF.PI / 2f + 0.05f;  // ~-89 degrees
 
         public CameraControlSystem(GameRoot gameRoot)
@@ -51,19 +51,19 @@ namespace V12.Core.Systems
 
         public void OnInputEvent(InputEvent evt)
         {
-            //if (evt.Type != InputEventType.Axis)
-            //{
-            //    Console.WriteLine("CameraControlSystem ignoring non-axis input event: " + evt.Type);
-            //    return;
-            //}
-                //Console.WriteLine($"CameraControlSystem received input event: {evt.Name} = {evt.Value}");
-            // Combine directional pairs into signed axes
+            if (evt.Type != InputEventType.Axis)
+            {
+                Console.WriteLine("CameraControlSystem ignoring non-axis input event: " + evt.Type);
+                return;
+            }
+            Console.WriteLine($"CameraControlSystem received input event: {evt.Name} = {evt.Value}");
+            //Combine directional pairs into signed axes
             switch (evt.Name)
             {
-                case "look_right": _lookX =  (float)evt.Value; break;
-                case "look_left":  _lookX = -(float)evt.Value; break;
-                case "look_up":    _lookY =  (float)evt.Value; break;
-                case "look_down":  _lookY = -(float)evt.Value; break;
+                case "look_right": _lookX = (float)evt.Value; break;
+                case "look_left": _lookX = -(float)evt.Value; break;
+                case "look_up": _lookY = (float)evt.Value; break;
+                case "look_down": _lookY = -(float)evt.Value; break;
             }
         }
 
@@ -73,30 +73,31 @@ namespace V12.Core.Systems
         {
             var world = _gameRoot.SelectedWorld;
             if (world == null) return;
+            var player = world.FindElementWithComponent<PlayerComponent>();
+            if (player == null)
+                return;
+            var came = player.FindChildByName("PlayerCamera3D");
+            element = player;
+            var cam = came.GetComponent<CameraComponent>();
+            var transform = came.GetComponent<TransformComponent>();
 
 
-                var cam = element.GetComponent<CameraComponent>();
-              
+            var loco = player.GetComponent<LocomotionComponent>();
+            float sensitivity = loco?.LookSensitivity ?? 1.2f;
 
-                var transform = element.GetComponent<TransformComponent>();
-         
+            // Apply yaw (rotate around Y axis)
+            if (MathF.Abs(_lookX) > 0.001f)
+            {
+                transform.RY += _lookX * sensitivity * deltaTime;
+            }
 
-                var loco = element.GetComponent<LocomotionComponent>();
-                float sensitivity = loco?.LookSensitivity ?? 1.2f;
+            // Apply pitch (rotate around X axis) with clamping
+            if (MathF.Abs(_lookY) > 0.001f)
+            {
+                float newPitch = transform.RX + _lookY * sensitivity * deltaTime;
+                transform.RX = Math.Clamp(newPitch, MinPitch, MaxPitch);
+            }
 
-                // Apply yaw (rotate around Y axis)
-                if (MathF.Abs(_lookX) > 0.001f)
-                {
-                    transform.RY += _lookX * sensitivity * deltaTime;
-                }
-
-                // Apply pitch (rotate around X axis) with clamping
-                if (MathF.Abs(_lookY) > 0.001f)
-                {
-                    float newPitch = transform.RX + _lookY * sensitivity * deltaTime;
-                    transform.RX = Math.Clamp(newPitch, MinPitch, MaxPitch);
-                }
-            
         }
     }
 }

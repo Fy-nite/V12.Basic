@@ -28,7 +28,7 @@ namespace V12.Core.Systems
             var world = _gameRoot.SelectedWorld;
             if (world == null || _physicsService == null) 
             {
-                Console.WriteLine($"Skipping update: world={world != null}, physicsService={_physicsService != null}");
+                //Console.WriteLine($"Skipping update: world={world != null}, physicsService={_physicsService != null}");
                 return;
             }
 

@@ -35,6 +35,7 @@ namespace V12.Core.Systems
         public void Update(float deltaTime)
         {
             if (deltaTime <= 0) return;
+            if (Simulation == null) return;
             Simulation.Timestep(deltaTime, _threadDispatcher);
         }
 

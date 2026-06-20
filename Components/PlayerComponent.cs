@@ -180,8 +180,8 @@ namespace V12.Basic.Components
             {
                _camera = new Element { Name = "PlayerCamera3D", Active = true };
                 _camera.AddComponent(new CameraComponent { Active = true, IsCurrent = true });
-                _camera.AddComponent(new TransformComponent { Active = true });
-                _camera.AddComponent(new LocomotionComponent {  Active = true });
+                //_camera.AddComponent(new TransformComponent { Active = true });
+                //_camera.AddComponent(new LocomotionComponent {  Active = true });
                 worldElement.AddChild(_camera);
             }
             SyncLocomotion();
