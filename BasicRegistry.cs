@@ -12,6 +12,7 @@ namespace V12.Basic
         /// <param name="gameRoot"></param>
         public static void RegisterAll(GameRoot gameRoot)
         {
+            gameRoot.Registry.Register("LocomotionSystem", new V12.Core.Systems.LocomotionSystem(gameRoot));
             gameRoot.Registry.Register("PhysicsLocomotionSystem", new V12.Core.Systems.PhysicsLocomotionSystem(gameRoot));
             gameRoot.Registry.Register("PhysicsService", new V12.Core.Systems.PhysicsService());
         }
