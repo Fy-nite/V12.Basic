@@ -119,8 +119,8 @@ namespace V12.Basic.Components
                 t = new TransformComponent
                 {
                     X = 0,
-                    Y = 2.0f,
-                    Z = -5.0f,
+                    Y = 1.7f,
+                    Z = 0,
                     RotationX = RotX,
                     RotationY = RotY,
                     RotationZ = RotZ

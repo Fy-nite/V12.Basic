@@ -52,12 +52,7 @@ namespace V12.Core.Systems
         public void OnInputEvent(InputEvent evt)
         {
             if (evt.Type != InputEventType.Axis)
-            {
-                Console.WriteLine("CameraControlSystem ignoring non-axis input event: " + evt.Type);
                 return;
-            }
-            Console.WriteLine($"CameraControlSystem received input event: {evt.Name} = {evt.Value}");
-            //Combine directional pairs into signed axes
             switch (evt.Name)
             {
                 case "look_right": _lookX = (float)evt.Value; break;
@@ -76,11 +71,14 @@ namespace V12.Core.Systems
             var player = world.FindElementWithComponent<PlayerComponent>();
             if (player == null)
                 return;
-            var came = player.FindChildByName("PlayerCamera3D");
+            var cameraElement = player.FindChildByNameRecursive("PlayerCamera3D");
+            if (cameraElement == null)
+                return;
             element = player;
-            var cam = came.GetComponent<CameraComponent>();
-            var transform = came.GetComponent<TransformComponent>();
-
+            var cam = cameraElement.GetComponent<CameraComponent>();
+            var transform = cameraElement.GetComponent<TransformComponent>();
+            if (cam == null || transform == null)
+                return;
 
             var loco = player.GetComponent<LocomotionComponent>();
             float sensitivity = loco?.LookSensitivity ?? 1.2f;
