@@ -262,7 +262,7 @@ namespace V12.Basic.Components
             if (transform == null) return;
 
             Vector2 move = _actions?.GetVector2("Move") ?? Vector2.Zero;
-            Console.WriteLine("move X {0} Move Y {1}",move.X, move.Y);
+            //Console.WriteLine("move X {0} Move Y {1}",move.X, move.Y);
             bool sprint = _actions?.GetButton("Sprint") ?? false;
             bool jump = _actions?.GetButtonDown("Jump") ?? false;
 
@@ -304,7 +304,7 @@ namespace V12.Basic.Components
             Vector3 right = new Vector3(cosY, 0, -sinY);
 
             Vector3 moveDir = (forward * move.Y + right * move.X) * speed;
-            Console.WriteLine($"  move=({move.X},{move.Y}) speed={speed} fwd=({forward.X:F4},{forward.Y},{forward.Z:F4}) rt=({right.X:F4},{right.Y},{right.Z:F4}) playerYaw={yaw:F4} dir=({moveDir.X:F4},{moveDir.Y},{moveDir.Z:F4})");
+            //Console.WriteLine($"  move=({move.X},{move.Y}) speed={speed} fwd=({forward.X:F4},{forward.Y},{forward.Z:F4}) rt=({right.X:F4},{right.Y},{right.Z:F4}) playerYaw={yaw:F4} dir=({moveDir.X:F4},{moveDir.Y},{moveDir.Z:F4})");
             var bodyComponent = element.GetComponent<PhysicsBodyComponent>();
             if (bodyComponent != null && _locomotion != null)
             {
