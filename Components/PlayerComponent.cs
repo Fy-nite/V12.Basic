@@ -4,7 +4,7 @@ using V12.Components;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Input;
-using V12.Core.Systems;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.Basic.Components
 {
@@ -13,37 +13,41 @@ namespace V12.Basic.Components
         private bool         _isLocalControlled    = true;
         private InputMethods _preferredInputMethod = InputMethods.Auto;
         private IWorldElement _camera;
-        // ── Shared movement settings ──────────────────────────────────────────
         private float _moveSpeed        = 4f;
         private float _sprintMultiplier = 1.9f;
         private float _jumpStrength     = 6f;
-
-        // ── Desktop-specific settings ─────────────────────────────────────────
         private float _lookSensitivity  = 1.2f;
         private bool  _canJump          = true;
-
-        // ── VR-specific settings ──────────────────────────────────────────────
         private bool  _enableHandTracking   = true;
         private float _vrMoveSpeed          = 3f;
         private bool  _vrSmoothLocomotion   = true;
-
-        // ── Fly mode ─────────────────────────────────────────────────────────────
         private bool _isFlying;
         private float _flySpeed = 8f;
-
-        // ── Input state ──────────────────────────────────────────────────────────
         private InputService? _input;
         private InputActionMap _actions;
 
         private const float MaxPitch = MathF.PI / 2f - 0.05f;
         private const float MinPitch = -MathF.PI / 2f + 0.05f;
 
-        // ─────────────────────────────────────────────────────────────────────
+        private readonly object _mouseLock = new();
+        private float _mouseDeltaX;
+        private float _mouseDeltaY;
+        private const float MouseSensitivity = 0.002f;
+
+        private float _yaw;
+        private float _pitch;
+
+        public void AddMouseDelta(float x, float y)
+        {
+            lock (_mouseLock)
+            {
+                _mouseDeltaX += x;
+                _mouseDeltaY += y;
+            }
+        }
 
         public override string Name        => "Player";
         public override string Description => "Unified VR/desktop player settings";
-
-        // ── IPlayerControlComponent ───────────────────────────────────────────
 
         public InputMethods RequiredInputMethod => InputMethods.Auto;
 
@@ -53,69 +57,59 @@ namespace V12.Basic.Components
             set { if (_isLocalControlled != value) { _isLocalControlled = value; MarkDirty(); } }
         }
 
-        // ── Mode preference ───────────────────────────────────────────────────
-
         public InputMethods PreferredInputMethod
         {
             get => _preferredInputMethod;
-            set { if (_preferredInputMethod != value) { _preferredInputMethod = value; MarkDirty(); SyncLocomotion(); } }
+            set { if (_preferredInputMethod != value) { _preferredInputMethod = value; MarkDirty(); } }
         }
-
-        // ── Shared ────────────────────────────────────────────────────────────
 
         public float MoveSpeed
         {
             get => _moveSpeed;
-            set { if (Math.Abs(_moveSpeed - value) > 0.0001f) { _moveSpeed = MathF.Max(0f, value); MarkDirty(); SyncLocomotion(); } }
+            set { if (Math.Abs(_moveSpeed - value) > 0.0001f) { _moveSpeed = MathF.Max(0f, value); MarkDirty(); } }
         }
 
         public float SprintMultiplier
         {
             get => _sprintMultiplier;
-            set { if (Math.Abs(_sprintMultiplier - value) > 0.0001f) { _sprintMultiplier = MathF.Max(1f, value); MarkDirty(); SyncLocomotion(); } }
+            set { if (Math.Abs(_sprintMultiplier - value) > 0.0001f) { _sprintMultiplier = MathF.Max(1f, value); MarkDirty(); } }
         }
 
         public float JumpStrength
         {
             get => _jumpStrength;
-            set { if (Math.Abs(_jumpStrength - value) > 0.0001f) { _jumpStrength = MathF.Max(0f, value); MarkDirty(); SyncLocomotion(); } }
+            set { if (Math.Abs(_jumpStrength - value) > 0.0001f) { _jumpStrength = MathF.Max(0f, value); MarkDirty(); } }
         }
-
-        // ── Desktop ───────────────────────────────────────────────────────────
 
         public float LookSensitivity
         {
             get => _lookSensitivity;
-            set { if (Math.Abs(_lookSensitivity - value) > 0.0001f) { _lookSensitivity = MathF.Max(0f, value); MarkDirty(); SyncLocomotion(); } }
+            set { if (Math.Abs(_lookSensitivity - value) > 0.0001f) { _lookSensitivity = MathF.Max(0f, value); MarkDirty(); } }
         }
 
         public bool CanJump
         {
             get => _canJump;
-            set { if (_canJump != value) { _canJump = value; MarkDirty(); SyncLocomotion(); } }
+            set { if (_canJump != value) { _canJump = value; MarkDirty(); } }
         }
-
-        // ── VR ────────────────────────────────────────────────────────────────
 
         public bool EnableHandTracking
         {
             get => _enableHandTracking;
-            set { if (_enableHandTracking != value) { _enableHandTracking = value; MarkDirty(); SyncLocomotion(); } }
+            set { if (_enableHandTracking != value) { _enableHandTracking = value; MarkDirty(); } }
         }
 
         public float VRMoveSpeed
         {
             get => _vrMoveSpeed;
-            set { if (Math.Abs(_vrMoveSpeed - value) > 0.0001f) { _vrMoveSpeed = MathF.Max(0f, value); MarkDirty(); SyncLocomotion(); } }
+            set { if (Math.Abs(_vrMoveSpeed - value) > 0.0001f) { _vrMoveSpeed = MathF.Max(0f, value); MarkDirty(); } }
         }
 
         public bool VRSmoothLocomotion
         {
             get => _vrSmoothLocomotion;
-            set { if (_vrSmoothLocomotion != value) { _vrSmoothLocomotion = value; MarkDirty(); SyncLocomotion(); } }
+            set { if (_vrSmoothLocomotion != value) { _vrSmoothLocomotion = value; MarkDirty(); } }
         }
-
-        // ── Fly mode ─────────────────────────────────────────────────────────────
 
         public bool IsFlying
         {
@@ -128,11 +122,6 @@ namespace V12.Basic.Components
             get => _flySpeed;
             set { if (Math.Abs(_flySpeed - value) > 0.0001f) { _flySpeed = MathF.Max(0f, value); MarkDirty(); } }
         }
-
-        private PhysicsBodyComponent _physicsBody;
-        private LocomotionComponent _locomotion;
-
-        // ── Constructors ──────────────────────────────────────────────────────
 
         public PlayerComponent() { }
 
@@ -148,8 +137,6 @@ namespace V12.Basic.Components
             _isLocalControlled    = isLocalControlled;
         }
 
-        // ── Lifecycle ──────────────────────────────────────────────────────────
-
         public override void OnAttach(IWorldElement worldElement)
         {
             base.OnAttach(worldElement);
@@ -158,7 +145,7 @@ namespace V12.Basic.Components
 
             _actions = new InputActionMap { Name = "PlayerActions" };
             _actions.BindVector2("Look", "look_right", "look_left", "look_up", "look_down");
-            _actions.BindVector2("Move", "move_right", "move_left", "move_backward", "move_forward");
+            _actions.BindVector2("Move", "move_right", "move_left", "move_forward", "move_backward");
             _actions.BindButton("Jump", "jump");
             _actions.BindButton("Sprint", "run");
             _actions.BindButton("FlyToggle", "fly_toggle");
@@ -166,28 +153,9 @@ namespace V12.Basic.Components
             _actions.BindAxis("FlyDown", "fly_down", "");
             _actions.Attach(_input);
 
-            _physicsBody = worldElement.GetComponent<PhysicsBodyComponent>();
-            if (_physicsBody == null)
-            {
-                _physicsBody = new PhysicsBodyComponent
-                {
-                    Active = true,
-                    IsKinematic = false
-                };
-                worldElement.AddComponent(_physicsBody);
-            }
-
-            _locomotion = worldElement.GetComponent<LocomotionComponent>();
-            if (_locomotion == null)
-            {
-                _locomotion = new LocomotionComponent
-                {
-                    Active = true
-                };
-                worldElement.AddComponent(_locomotion);
-            }
-            if (worldElement.GetComponent<TransformComponent>() == null)
-                worldElement.AddComponent(new TransformComponent { Active = true });
+            var lt = worldElement.LocalTransform;
+            _yaw = 0f;
+            _pitch = 0f;
 
             _camera = worldElement.FindChildByName("PlayerCamera3D");
             if (_camera == null)
@@ -195,9 +163,14 @@ namespace V12.Basic.Components
                 _camera = new Element { Name = "PlayerCamera3D", Active = true };
                 _camera.AddComponent(new CameraComponent { Active = true, IsCurrent = true });
                 _camera.AddComponent(new AudioListenerComponent { Active = true });
-                worldElement.AddChild(_camera);
+                _camera.LocalTransform = new TRS
+                {
+                    Position = new Vector3(0, 1.7f, 0),
+                    Rotation = Quaternion.Identity,
+                    Scale = Vector3.One
+                };
+                GameRoot.Instance.SelectedWorld?.AddElement(_camera);
             }
-            SyncLocomotion();
         }
 
         public override void OnDetach(IWorldElement worldElement)
@@ -206,20 +179,14 @@ namespace V12.Basic.Components
             _actions = null;
             _input = null;
 
-            if (_physicsBody != null)
-            {
-                worldElement.RemoveComponent(_physicsBody);
-                _physicsBody = null;
-            }
-            if (_locomotion != null)
-            {
-                worldElement.RemoveComponent(_locomotion);
-                _locomotion = null;
-            }
+            if (_camera != null)
+                GameRoot.Instance?.SelectedWorld?.RemoveElement(_camera);
+            _camera = null;
+
             base.OnDetach(worldElement);
         }
 
-        // ── Per-frame update ──────────────────────────────────────────────────
+        private int _frameCount;
 
         public override void Update(float deltaTime)
         {
@@ -230,6 +197,13 @@ namespace V12.Basic.Components
             if (_actions != null && _actions.GetButtonDown("FlyToggle"))
                 _isFlying = !_isFlying;
 
+            if (_actions != null && ++_frameCount % 10 == 0)
+            {
+                var look = _actions.GetVector2("Look");
+                var move = _actions.GetVector2("Move");
+                Console.WriteLine($"DBG look=({look.X:F2},{look.Y:F2}) move=({move.X:F2},{move.Y:F2}) flying={_isFlying} _yaw={_yaw:F2}");
+            }
+
             UpdateCamera(deltaTime);
             UpdateMovement(deltaTime);
         }
@@ -237,49 +211,63 @@ namespace V12.Basic.Components
         private void UpdateCamera(float deltaTime)
         {
             if (_camera == null) return;
-            var camTransform = _camera.GetComponent<TransformComponent>();
-            if (camTransform == null) return;
+
+            float mouseX, mouseY;
+            lock (_mouseLock)
+            {
+                mouseX = _mouseDeltaX;
+                mouseY = _mouseDeltaY;
+                _mouseDeltaX = 0;
+                _mouseDeltaY = 0;
+            }
 
             Vector2 look = _actions?.GetVector2("Look") ?? Vector2.Zero;
-            if (MathF.Abs(look.X) < 0.001f && MathF.Abs(look.Y) < 0.001f) return;
+            float sensitivity = _lookSensitivity;
+            float yawDelta = (-look.X) * sensitivity * deltaTime + (-mouseX) * MouseSensitivity;
+            float pitchDelta = look.Y * sensitivity * deltaTime + (-mouseY) * MouseSensitivity;
 
-            float sensitivity = _locomotion?.LookSensitivity ?? 1.2f;
+            if (MathF.Abs(yawDelta) >= 0.0001f || MathF.Abs(pitchDelta) >= 0.0001f)
+            {
+                _yaw += yawDelta;
+                _pitch += pitchDelta;
+                _pitch = Math.Clamp(_pitch, MinPitch, MaxPitch);
+            }
 
-            // Yaw → player body (visual rotation + movement direction)
-            var playerTransform = Owner?.GetComponent<TransformComponent>();
-            if (playerTransform != null)
-                playerTransform.RY -= look.X * sensitivity * deltaTime;
-
-            // Pitch → camera (look up/down, clamped)
-            float newPitch = camTransform.RX + look.Y * sensitivity * deltaTime;
-            camTransform.RX = Math.Clamp(newPitch, MinPitch, MaxPitch);
+            // Camera is a root-level element, so its WorldTransform = LocalTransform.
+            // We set the camera's world position and rotation directly.
+            // Always update position to carry player movement to the renderer.
+            Vector3 playerPos = Owner?.LocalTransform.Position ?? Vector3.Zero;
+            _camera.LocalTransform = new TRS
+            {
+                Position = playerPos + new Vector3(0, 1.7f, 0),
+                Rotation = Quaternion.CreateFromYawPitchRoll(_yaw, _pitch, 0),
+                Scale = Vector3.One
+            };
         }
 
         private void UpdateMovement(float deltaTime)
         {
             var element = Owner;
             if (element == null) return;
-            var transform = element.GetComponent<TransformComponent>();
-            if (transform == null) return;
+
+            var lt = element.LocalTransform;
+            Vector3 pos = lt.Position;
 
             Vector2 move = _actions?.GetVector2("Move") ?? Vector2.Zero;
-            //Console.WriteLine("move X {0} Move Y {1}",move.X, move.Y);
             bool sprint = _actions?.GetButton("Sprint") ?? false;
-            bool jump = _actions?.GetButtonDown("Jump") ?? false;
 
             float speed = _isFlying ? _flySpeed : _moveSpeed;
             if (sprint)
                 speed *= _sprintMultiplier;
 
-            // ── Fly mode ────────────────────────────────────────────────────────
             if (_isFlying)
             {
                 Vector3 flyForward = Vector3.UnitZ;
                 Vector3 flyRight = Vector3.UnitX;
                 if (MathF.Abs(move.X) > 0.001f || MathF.Abs(move.Y) > 0.001f)
                 {
-                    var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(transform.RY, transform.RX, 0);
-                    flyForward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
+                    var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(_yaw, _pitch, 0);
+                    flyForward = Vector3.Transform(-Vector3.UnitZ, rotationMatrix);
                     flyRight = Vector3.Transform(Vector3.UnitX, rotationMatrix);
                 }
 
@@ -289,57 +277,23 @@ namespace V12.Basic.Components
                 Vector3 flyMove = (flyForward * move.Y + flyRight * move.X + Vector3.UnitY * (ascend - descend))
                                   * speed * deltaTime;
 
-                transform.X += flyMove.X;
-                transform.Y += flyMove.Y;
-                transform.Z += flyMove.Z;
+                pos += flyMove;
 
-                if (_locomotion != null)
-                    _locomotion.Velocity = Vector3.Zero;
+                lt.Position = pos;
+                element.LocalTransform = lt;
                 return;
             }
 
-            float yaw = transform.RY;
-            float cosY = MathF.Cos(yaw);
-            float sinY = MathF.Sin(yaw);
-            Vector3 forward = new Vector3(sinY, 0, cosY);
+            float cosY = MathF.Cos(_yaw);
+            float sinY = MathF.Sin(_yaw);
+            Vector3 forward = new Vector3(-sinY, 0, -cosY);
             Vector3 right = new Vector3(cosY, 0, -sinY);
 
             Vector3 moveDir = (forward * move.Y + right * move.X) * speed;
-            //Console.WriteLine($"  move=({move.X},{move.Y}) speed={speed} fwd=({forward.X:F4},{forward.Y},{forward.Z:F4}) rt=({right.X:F4},{right.Y},{right.Z:F4}) playerYaw={yaw:F4} dir=({moveDir.X:F4},{moveDir.Y},{moveDir.Z:F4})");
-            var bodyComponent = element.GetComponent<PhysicsBodyComponent>();
-            if (bodyComponent != null && _locomotion != null)
-            {
-                _locomotion.Velocity = new Vector3(moveDir.X, _locomotion.Velocity.Y, moveDir.Z);
-                if (jump && _locomotion.IsGrounded && _locomotion.CanJump)
-                {
-                    _locomotion.Velocity = new Vector3(_locomotion.Velocity.X, _jumpStrength, _locomotion.Velocity.Z);
-                }
-            }
-            else
-            {
-                if (_locomotion != null)
-                    _locomotion.Velocity = moveDir;
-                transform.X += moveDir.X * deltaTime;
-                transform.Y += moveDir.Y * deltaTime;
-                transform.Z += moveDir.Z * deltaTime;
-            }
-        }
 
-        private void SyncLocomotion()
-        {
-            if (_locomotion != null)
-            {
-                _locomotion.PreferredInputMethod = PreferredInputMethod;
-                _locomotion.MoveSpeed = MoveSpeed;
-                _locomotion.SprintMultiplier = SprintMultiplier;
-                _locomotion.JumpStrength = JumpStrength;
-                _locomotion.LookSensitivity = LookSensitivity;
-                _locomotion.CanJump = CanJump;
-                _locomotion.EnableHandTracking = EnableHandTracking;
-                _locomotion.VRMoveSpeed = VRMoveSpeed;
-                _locomotion.VRSmoothLocomotion = VRSmoothLocomotion;
-                _locomotion.Active = Active;
-            }
+            pos += moveDir * deltaTime;
+            lt.Position = pos;
+            element.LocalTransform = lt;
         }
 
         public override IWorldElement BuildUI()

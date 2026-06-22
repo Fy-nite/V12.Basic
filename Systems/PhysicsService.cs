@@ -54,10 +54,9 @@ namespace V12.Core.Systems
                 shapeIndex = Simulation.Shapes.Add(new Box(1f, 2f, 1f));
             }
             
-            // Get transform if available, default to 1.5 height
-            var transform = element.GetComponent<V12.Components.TransformComponent>();
-            var pos = transform != null ? new System.Numerics.Vector3(transform.X, transform.Y, transform.Z) : new System.Numerics.Vector3(0, 1.5f, 0);
-            var rot = transform != null ? Quaternion.CreateFromYawPitchRoll(transform.RY, transform.RX, transform.RZ) : Quaternion.Identity;
+            var lt = element.LocalTransform;
+            var pos = lt.Position;
+            var rot = lt.Rotation;
 
             var physicsComp = element.GetComponent<PhysicsBodyComponent>();
             

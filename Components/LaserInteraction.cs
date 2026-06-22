@@ -1,14 +1,10 @@
 using System;
-using V12.Components;
 using V12.Core.Core.Interfaces;
+using V12.Core.Interfaces.Renderer;
+using System.Numerics;
 
 namespace V12.Basic.Components
 {
-    /// <summary>
-    /// Core interaction helper for laser/grab/select. Glue code should call into
-    /// this to update pointing/select/grab state; on grab end this will persist
-    /// transforms to the authoritative TransformComponent for the element.
-    /// </summary>
     public class LaserInteraction
     {
         public bool IsPointing { get; private set; }
@@ -38,12 +34,6 @@ namespace V12.Basic.Components
         public void BeginSelect() => IsSelecting = true;
         public void EndSelect() => IsSelecting = false;
 
-        /// <summary>
-        /// Called by glue when a grab is released. This will write the provided world
-        /// position/rotation back into the authoritative TransformComponent for the
-        /// element with id <paramref name="entityId"/> if a resolver has been
-        /// configured and the element is found.
-        /// </summary>
         public static Func<long, IWorldElement> ElementResolver;
 
         public void EndGrabAndPersist(long entityId, float x, float y, float z, float yawDegrees)
@@ -53,10 +43,10 @@ namespace V12.Basic.Components
                 if (ElementResolver == null) return;
                 var elem = ElementResolver(entityId);
                 if (elem == null) return;
-                var tc = elem.GetComponent("Transform") as TransformComponent;
-                if (tc == null) return;
-                tc.SetPosition(x, y, z);
-                tc.Rotation = yawDegrees;
+                var lt = elem.LocalTransform;
+                lt.Position = new Vector3(x, y, z);
+                lt.Rotation = Quaternion.CreateFromYawPitchRoll(yawDegrees * (MathF.PI / 180f), 0, 0);
+                elem.LocalTransform = lt;
             }
             catch { }
         }

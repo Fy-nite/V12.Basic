@@ -1,24 +1,18 @@
 using System.Collections.Generic;
 using System.Numerics;
 using V12.Core.Core.Interfaces;
-using V12.Components;
 using V12.Core.Input;
 using System;
 using V12.Basic.Components;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.Core.Systems
 {
-    /// <summary>
-    /// Handles entity movement from V12 movement input events.
-    /// Camera rotation is handled separately by <see cref="CameraControlSystem"/>.
-    /// Supports analog input magnitudes (0..1) for smooth movement.
-    /// </summary>
     public class LocomotionSystem : IGameService, IInputHandler
     {
         private readonly GameRoot _gameRoot;
         private InputService? _input;
 
-        // Input state tracked by handler (analog-ready, range -1..1)
         private float _moveX, _moveY;
         private bool _jumpRequested;
         private bool _isSprinting;
@@ -45,20 +39,17 @@ namespace V12.Core.Systems
         {
             if (evt.Type == InputEventType.Axis)
             {
-                // Movement: combine directional pairs into single axis values
                 if (evt.Name == "move_right") { _moveX = (float)evt.Value; }
                 if (evt.Name == "move_left") { _moveX = -(float)evt.Value; }
                 if (evt.Name == "move_forward") { _moveY = -(float)evt.Value; }
                 if (evt.Name == "move_backward") { _moveY = (float)evt.Value; }
             }
 
-            // Sprint toggle
             if (evt.Type == InputEventType.ButtonDown && evt.Name == "run")
                 _isSprinting = true;
             if (evt.Type == InputEventType.ButtonUp && evt.Name == "run")
                 _isSprinting = false;
 
-            // Jump
             if (evt.Type == InputEventType.ButtonDown && evt.Name == "jump")
                 _jumpRequested = true;
         }
@@ -74,16 +65,16 @@ namespace V12.Core.Systems
             {
                 if (element == null) continue;
                 var loco = element.GetComponent<LocomotionComponent>();
-                var transform = element.GetComponent<TransformComponent>();
+                if (loco == null) continue;
 
-                if (loco == null || transform == null) continue;
+                var lt = element.LocalTransform;
+                Vector3 pos = lt.Position;
+                var (yaw, pitch, _) = ToEulerAngles(lt.Rotation);
 
-                // Calculate speed (with sprint multiplier)
                 float speed = loco.MoveSpeed;
                 if (_isSprinting)
                     speed *= loco.SprintMultiplier;
 
-                // Move relative to head or camera orientation
                 Vector3 forward = Vector3.UnitZ;
                 Vector3 right = Vector3.UnitX;
                 if (vrInput != null)
@@ -97,20 +88,16 @@ namespace V12.Core.Systems
                 }
                 else
                 {
-                    // Rotate movement vectors by the entity's own yaw (horizontal only for grounded,
-                    // full yaw+pitch for free-fly)
                     var bodyComp = element.GetComponent<PhysicsBodyComponent>();
                     if (bodyComp != null)
                     {
-                        // Grounded: only yaw affects direction, movement stays on XZ plane
-                        var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(transform.RY, 0, 0);
+                        var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, 0, 0);
                         forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
                         right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
                     }
                     else
                     {
-                        // Free-fly: yaw + pitch for full 3D movement (e.g. noclip camera)
-                        var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(transform.RY, transform.RX, 0);
+                        var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, pitch, 0);
                         forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
                         right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
                     }
@@ -121,10 +108,8 @@ namespace V12.Core.Systems
                 var bodyComponent = element.GetComponent<PhysicsBodyComponent>();
                 if (bodyComponent != null)
                 {
-                    // Physics body: set horizontal velocity, preserve vertical (gravity)
                     loco.Velocity = new Vector3(moveDir.X, loco.Velocity.Y, moveDir.Z);
 
-                    // Jump
                     if (_jumpRequested && loco.IsGrounded && loco.CanJump)
                     {
                         loco.Velocity = new Vector3(loco.Velocity.X, loco.JumpStrength, loco.Velocity.Z);
@@ -132,17 +117,27 @@ namespace V12.Core.Systems
                 }
                 else
                 {
-                    // Kinematic/noclip free-fly (e.g. camera) moves in all three dimensions
                     loco.Velocity = moveDir;
-
-                    // Apply velocity to position directly
-                    transform.X += loco.Velocity.X * deltaTime;
-                    transform.Y += loco.Velocity.Y * deltaTime;
-                    transform.Z += loco.Velocity.Z * deltaTime;
+                    pos += loco.Velocity * deltaTime;
+                    lt.Position = pos;
+                    element.LocalTransform = lt;
                 }
             }
 
             _jumpRequested = false;
+        }
+
+        private static (float yaw, float pitch, float roll) ToEulerAngles(Quaternion q)
+        {
+            float siny_cosp = 2 * (q.W * q.Y + q.Z * q.X);
+            float cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z);
+            float yaw = MathF.Atan2(siny_cosp, cosy_cosp);
+            float sinp = 2 * (q.W * q.X - q.Y * q.Z);
+            float pitch = Math.Abs(sinp) >= 1 ? MathF.CopySign(MathF.PI / 2, sinp) : MathF.Asin(sinp);
+            float sinr_cosp = 2 * (q.W * q.Z + q.X * q.Y);
+            float cosr_cosp = 1 - 2 * (q.X * q.X + q.Z * q.Z);
+            float roll = MathF.Atan2(sinr_cosp, cosr_cosp);
+            return (yaw, pitch, roll);
         }
     }
 }

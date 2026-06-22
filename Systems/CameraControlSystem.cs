@@ -1,37 +1,27 @@
 using System;
 using System.Numerics;
 using V12.Core.Core.Interfaces;
-using V12.Components;
 using V12.Core.Input;
 using V12.Basic.Components;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.Core.Systems
 {
-    /// <summary>
-    /// Handles camera rotation from V12 look input events.
-    /// Operates on any element that has both a CameraComponent and a TransformComponent.
-    /// Supports analog stick input (smooth, magnitude-scaled rotation) and digital
-    /// keyboard input (binary 0/1 values) through the same event names.
-    /// </summary>
     public class CameraControlSystem : IGameService, IInputHandler
     {
         private readonly GameRoot _gameRoot;
         private InputService? _input;
         private IWorldElement element;
-        // Accumulated look input (supports analog range -1..1)
-        private float _lookX;  // yaw:   positive = look right
-        private float _lookY;  // pitch: positive = look up
+        private float _lookX;
+        private float _lookY;
 
-        // Pitch clamping to prevent camera flipping
-        private const float MaxPitch = MathF.PI / 2f - 0.05f; //  ~89 degrees
-        private const float MinPitch = -MathF.PI / 2f + 0.05f;  // ~-89 degrees
+        private const float MaxPitch = MathF.PI / 2f - 0.05f;
+        private const float MinPitch = -MathF.PI / 2f + 0.05f;
 
         public CameraControlSystem(GameRoot gameRoot)
         {
             _gameRoot = gameRoot;
         }
-
-        // ── IGameService ─────────────────────────────────────────────────────
 
         public void Update(GameRoot g) { }
 
@@ -47,8 +37,6 @@ namespace V12.Core.Systems
             _input?.RegisterHandler(this);
         }
 
-        // ── IInputHandler ────────────────────────────────────────────────────
-
         public void OnInputEvent(InputEvent evt)
         {
             if (evt.Type != InputEventType.Axis)
@@ -62,8 +50,6 @@ namespace V12.Core.Systems
             }
         }
 
-        // ── Update ───────────────────────────────────────────────────────────
-
         public void Update(float deltaTime)
         {
             var world = _gameRoot.SelectedWorld;
@@ -76,26 +62,36 @@ namespace V12.Core.Systems
                 return;
             element = player;
             var cam = cameraElement.GetComponent<CameraComponent>();
-            var transform = cameraElement.GetComponent<TransformComponent>();
-            if (cam == null || transform == null)
+            if (cam == null)
                 return;
 
             var loco = player.GetComponent<LocomotionComponent>();
             float sensitivity = loco?.LookSensitivity ?? 1.2f;
 
-            // Apply yaw (rotate around Y axis)
+            var lt = cameraElement.LocalTransform;
+            var (yaw, pitch, _) = ToEulerAngles(lt.Rotation);
+
             if (MathF.Abs(_lookX) > 0.001f)
-            {
-                transform.RY += _lookX * sensitivity * deltaTime;
-            }
+                yaw += _lookX * sensitivity * deltaTime;
 
-            // Apply pitch (rotate around X axis) with clamping
             if (MathF.Abs(_lookY) > 0.001f)
-            {
-                float newPitch = transform.RX + _lookY * sensitivity * deltaTime;
-                transform.RX = Math.Clamp(newPitch, MinPitch, MaxPitch);
-            }
+                pitch = Math.Clamp(pitch + _lookY * sensitivity * deltaTime, MinPitch, MaxPitch);
 
+            lt.Rotation = Quaternion.CreateFromYawPitchRoll(yaw, pitch, 0);
+            cameraElement.LocalTransform = lt;
+        }
+
+        private static (float yaw, float pitch, float roll) ToEulerAngles(Quaternion q)
+        {
+            float siny_cosp = 2 * (q.W * q.Y + q.Z * q.X);
+            float cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z);
+            float yaw = MathF.Atan2(siny_cosp, cosy_cosp);
+            float sinp = 2 * (q.W * q.X - q.Y * q.Z);
+            float pitch = Math.Abs(sinp) >= 1 ? MathF.CopySign(MathF.PI / 2, sinp) : MathF.Asin(sinp);
+            float sinr_cosp = 2 * (q.W * q.Z + q.X * q.Y);
+            float cosr_cosp = 1 - 2 * (q.X * q.X + q.Z * q.Z);
+            float roll = MathF.Atan2(sinr_cosp, cosr_cosp);
+            return (yaw, pitch, roll);
         }
     }
 }
