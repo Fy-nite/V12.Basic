@@ -15,6 +15,7 @@ namespace V12.Basic
             gameRoot.Registry.Register("LocomotionSystem", new V12.Core.Systems.LocomotionSystem(gameRoot));
             gameRoot.Registry.Register("PhysicsLocomotionSystem", new V12.Core.Systems.PhysicsLocomotionSystem(gameRoot));
             gameRoot.Registry.Register("PhysicsService", new V12.Core.Systems.PhysicsService());
+            gameRoot.Registry.Register("ScriptSystem", new V12.Core.Systems.ScriptSystem(gameRoot));
         }
     }
 }
