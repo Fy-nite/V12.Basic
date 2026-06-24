@@ -59,8 +59,6 @@ namespace V12.Core.Systems
             var world = _gameRoot.SelectedWorld;
             if (world == null) return;
             
-            var vrInput = _gameRoot.Registry.Get<IVRInputProvider>();
-
             foreach (var element in world.Root)
             {
                 if (element == null) continue;
@@ -77,30 +75,18 @@ namespace V12.Core.Systems
 
                 Vector3 forward = Vector3.UnitZ;
                 Vector3 right = Vector3.UnitX;
-                if (vrInput != null)
+                var bodyComp = element.GetComponent<PhysicsBodyComponent>();
+                if (bodyComp != null)
                 {
-                    forward = Vector3.Transform(Vector3.UnitZ, vrInput.HeadOrientation);
-                    forward.Y = 0;
-                    forward = Vector3.Normalize(forward);
-                    right = Vector3.Transform(Vector3.UnitX, vrInput.HeadOrientation);
-                    right.Y = 0;
-                    right = Vector3.Normalize(right);
+                    var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, 0, 0);
+                    forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
+                    right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
                 }
                 else
                 {
-                    var bodyComp = element.GetComponent<PhysicsBodyComponent>();
-                    if (bodyComp != null)
-                    {
-                        var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, 0, 0);
-                        forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
-                        right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
-                    }
-                    else
-                    {
-                        var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, pitch, 0);
-                        forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
-                        right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
-                    }
+                    var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, pitch, 0);
+                    forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
+                    right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
                 }
 
                 Vector3 moveDir = (forward * _moveY + right * _moveX) * speed;
