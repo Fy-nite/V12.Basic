@@ -12,7 +12,7 @@ namespace V12.Basic.Components
     {
         private bool         _isLocalControlled    = true;
         private InputMethods _preferredInputMethod = InputMethods.Auto;
-        private IWorldElement _camera;
+        private IWorldElement? _camera;
         private float _moveSpeed        = 4f;
         private float _sprintMultiplier = 1.9f;
         private float _jumpStrength     = 6f;
@@ -25,8 +25,8 @@ namespace V12.Basic.Components
         private bool _isFlying;
         private float _flySpeed = 8f;
         private InputService? _input;
-        private InputActionMap _actions;
-        private IVRInputProvider _vrInput;
+        private InputActionMap? _actions;
+        private IVRInputProvider? _vrInput;
 
         private const float MaxPitch = MathF.PI / 2f - 0.05f;
         private const float MinPitch = -MathF.PI / 2f + 0.05f;
@@ -344,15 +344,19 @@ namespace V12.Basic.Components
                 return;
             }
 
-            float cosY = MathF.Cos(_yaw);
-            float sinY = MathF.Sin(_yaw);
-            Vector3 forward = new Vector3(-sinY, 0, -cosY);
-            Vector3 right = new Vector3(cosY, 0, -sinY);
+            var loco = element.GetComponent<LocomotionComponent>();
+            if (loco != null)
+            {
+                float cosY = MathF.Cos(_yaw);
+                float sinY = MathF.Sin(_yaw);
+                Vector3 forward = new Vector3(-sinY, 0, -cosY);
+                Vector3 right = new Vector3(cosY, 0, -sinY);
+                Vector3 moveDir = (forward * move.Y + right * move.X) * speed;
+                loco.Velocity = new Vector3(moveDir.X, loco.Velocity.Y, moveDir.Z);
+            }
 
-            Vector3 moveDir = (forward * move.Y + right * move.X) * speed;
-
-            pos += moveDir * deltaTime;
-            lt.Position = pos;
+            // Sync element yaw rotation so LocomotionSystem can read it for movement direction
+            lt.Rotation = Quaternion.CreateFromYawPitchRoll(_yaw, 0, 0);
             element.LocalTransform = lt;
         }
 

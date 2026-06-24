@@ -76,25 +76,22 @@ namespace V12.Core.Systems
                 Vector3 forward = Vector3.UnitZ;
                 Vector3 right = Vector3.UnitX;
                 var bodyComp = element.GetComponent<PhysicsBodyComponent>();
-                if (bodyComp != null)
-                {
-                    var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, 0, 0);
-                    forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
-                    right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
-                }
-                else
-                {
-                    var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(yaw, pitch, 0);
-                    forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
-                    right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
-                }
+                var rotationMatrix = bodyComp?.Body != null
+                    ? Matrix4x4.CreateFromYawPitchRoll(yaw, 0, 0)
+                    : Matrix4x4.CreateFromYawPitchRoll(yaw, pitch, 0);
+                forward = Vector3.Transform(Vector3.UnitZ, rotationMatrix);
+                right = Vector3.Transform(Vector3.UnitX, rotationMatrix);
 
                 Vector3 moveDir = (forward * _moveY + right * _moveX) * speed;
 
                 var bodyComponent = element.GetComponent<PhysicsBodyComponent>();
                 if (bodyComponent != null)
                 {
-                    loco.Velocity = new Vector3(moveDir.X, loco.Velocity.Y, moveDir.Z);
+                    Vector3 vel = loco.Velocity;
+                    vel.X = moveDir.X;
+                    vel.Z = moveDir.Z;
+                    vel.Y -= loco.Gravity * deltaTime;
+                    loco.Velocity = vel;
 
                     if (_jumpRequested && loco.IsGrounded && loco.CanJump)
                     {

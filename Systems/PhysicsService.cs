@@ -10,24 +10,27 @@ using BepuUtilities;
 using BepuUtilities.Memory;
 using V12.Core.Core.Interfaces;
 using V12.Components;
+using V12.Core.Interfaces.Physics;
 using V12.Core.Interfaces.Renderer;
 using BepuPhysics.Trees;
 using V12.Basic.Components;
 
 namespace V12.Core.Systems
 {
-    public class PhysicsService : IGameService
+    public class PhysicsService : IGameService, IPhysicsBackend
     {
-        public Simulation Simulation { get; private set; }
-        private BufferPool _bufferPool;
-        private ThreadDispatcher _threadDispatcher;
+        public Simulation? Simulation { get; private set; }
+        private BufferPool? _bufferPool;
+        private ThreadDispatcher? _threadDispatcher;
+
+        private readonly Dictionary<long, BepuPhysicsBody> _bodyMap = new();
+        private long _nextBodyId;
 
         public void Initialize(GameRoot g)
         {
             _bufferPool = new BufferPool();
             _threadDispatcher = new ThreadDispatcher(Environment.ProcessorCount); 
             
-            // Simulation.Create now requires a SolveDescription
             Simulation = Simulation.Create(_bufferPool, new NarrowPhaseCallbacks(), new PoseIntegratorCallbacks(new Vector3(0, -9.81f, 0)), new SolveDescription(8, 1));
         }
 
@@ -39,35 +42,94 @@ namespace V12.Core.Systems
             Simulation.Timestep(deltaTime, _threadDispatcher);
         }
 
-        public BodyHandle CreateBodyForElement(V12.Core.Core.Interfaces.IWorldElement element)
+        void IPhysicsBackend.Step(float deltaTime)
         {
-            var collider = element.GetComponent<ColliderComponent>();
-            TypedIndex shapeIndex;
+            Update(deltaTime);
+        }
 
-            if (collider != null)
+        IPhysicsBody IPhysicsBackend.CreateBody(in PhysicsBodyDesc desc)
+        {
+            TypedIndex shapeIndex = CreateShape(desc);
+
+            var description = desc.IsKinematic
+                ? BodyDescription.CreateKinematic(new RigidPose(desc.Position, desc.Rotation), new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f))
+                : BodyDescription.CreateDynamic(new RigidPose(desc.Position, desc.Rotation), new BodyInertia { InverseMass = desc.Mass > 0 ? 1f / desc.Mass : 1f }, new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f));
+
+            var handle = Simulation.Bodies.Add(description);
+            long id = _nextBodyId++;
+            var body = new BepuPhysicsBody(handle, Simulation, id);
+            _bodyMap[id] = body;
+            return body;
+        }
+
+        void IPhysicsBackend.DestroyBody(IPhysicsBody body)
+        {
+            if (body is BepuPhysicsBody b)
             {
-                shapeIndex = CreateShape(element, collider);
+                _bodyMap.Remove(b.Id);
+                if (Simulation.Bodies.ActiveSet.Count > 0)
+                {
+                    Simulation.Bodies.Remove(b.Handle);
+                }
             }
-            else
+        }
+
+        bool IPhysicsBackend.Raycast(in Ray ray, out RaycastHit hit)
+        {
+            hit = default;
+            var hitHandler = new RayHitHandler();
+            Simulation.RayCast(ray.Origin, ray.Direction, ray.MaxDistance, _bufferPool, ref hitHandler);
+
+            if (hitHandler.HitFound)
             {
-                // Fallback to default box
-                shapeIndex = Simulation.Shapes.Add(new Box(1f, 2f, 1f));
+                hit = new RaycastHit
+                {
+                    Point = ray.Origin + ray.Direction * hitHandler.T,
+                    Normal = hitHandler.Normal,
+                    Distance = hitHandler.T,
+                    Body = null
+                };
+                return true;
             }
-            
-            var lt = element.LocalTransform;
-            var pos = lt.Position;
-            var rot = lt.Rotation;
+            return false;
+        }
 
-            var physicsComp = element.GetComponent<PhysicsBodyComponent>();
-            
-            // For custom meshes, we might want to default to kinematic or static if not specified
-            bool isKinematic = physicsComp != null ? physicsComp.IsKinematic : true;
+        public bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out RayHit hit)
+        {
+            hit = default;
+            var hitHandler = new RayHitHandler();
+            Simulation.RayCast(origin, direction, maxDistance, _bufferPool, ref hitHandler);
 
-            var description = isKinematic 
-                ? BodyDescription.CreateKinematic(new RigidPose(pos, rot), new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f))
-                : BodyDescription.CreateDynamic(new RigidPose(pos, rot), new BodyInertia { InverseMass = 1f }, new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f));
-            
-            return Simulation.Bodies.Add(description);
+            if (hitHandler.HitFound)
+            {
+                hit = new RayHit
+                {
+                    T = hitHandler.T,
+                    Location = origin + direction * hitHandler.T,
+                    Normal = hitHandler.Normal,
+                    Collidable = hitHandler.Collidable
+                };
+                return true;
+            }
+            return false;
+        }
+
+        private TypedIndex CreateShape(in PhysicsBodyDesc desc)
+        {
+            switch (desc.Shape)
+            {
+                case MeshShape.Sphere:
+                    return Simulation.Shapes.Add(new Sphere(desc.Size.X * 0.5f));
+                case MeshShape.Capsule:
+                    return Simulation.Shapes.Add(new Capsule(desc.Size.X * 0.5f, desc.Size.Y));
+                case MeshShape.Cylinder:
+                    return Simulation.Shapes.Add(new Cylinder(desc.Size.X * 0.5f, desc.Size.Y));
+                case MeshShape.Plane:
+                    return Simulation.Shapes.Add(new Box(desc.Size.X, 0.1f, desc.Size.Z));
+                case MeshShape.Box:
+                default:
+                    return Simulation.Shapes.Add(new Box(desc.Size.X, desc.Size.Y, desc.Size.Z));
+            }
         }
 
         private TypedIndex CreateShape(IWorldElement element, ColliderComponent collider)
@@ -81,7 +143,6 @@ namespace V12.Core.Systems
                 case MeshShape.Cylinder:
                     return Simulation.Shapes.Add(new Cylinder(collider.Width * 0.5f, collider.Height));
                 case MeshShape.Plane:
-                    // Bepu doesn't have an infinite plane shape in the same way, usually use a large box or a specialized shape
                     return Simulation.Shapes.Add(new Box(collider.Width, 0.1f, collider.Depth));
                 case MeshShape.Custom:
                     var meshRenderable = element.GetComponent<IMeshRenderable>();
@@ -126,24 +187,70 @@ namespace V12.Core.Systems
             return Simulation.Shapes.Add(bepuMesh);
         }
 
-        public bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out RayHit hit)
+        public BodyHandle CreateBodyForElement(IWorldElement element)
         {
-            hit = default;
-            var hitHandler = new RayHitHandler();
-            Simulation.RayCast(origin, direction, maxDistance, _bufferPool, ref hitHandler);
+            var collider = element.GetComponent<ColliderComponent>();
+            TypedIndex shapeIndex;
 
-            if (hitHandler.HitFound)
+            if (collider != null)
             {
-                hit = new RayHit
-                {
-                    T = hitHandler.T,
-                    Location = origin + direction * hitHandler.T,
-                    Normal = hitHandler.Normal,
-                    Collidable = hitHandler.Collidable
-                };
-                return true;
+                shapeIndex = CreateShape(element, collider);
             }
-            return false;
+            else
+            {
+                shapeIndex = Simulation.Shapes.Add(new Box(1f, 2f, 1f));
+            }
+            
+            var lt = element.LocalTransform;
+            var pos = lt.Position;
+            var rot = lt.Rotation;
+
+            var physicsComp = element.GetComponent<PhysicsBodyComponent>();
+            bool isKinematic = physicsComp != null ? physicsComp.IsKinematic : true;
+
+            var description = isKinematic 
+                ? BodyDescription.CreateKinematic(new RigidPose(pos, rot), new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f))
+                : BodyDescription.CreateDynamic(new RigidPose(pos, rot), new BodyInertia { InverseMass = 1f }, new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f));
+            
+            return Simulation.Bodies.Add(description);
+        }
+    }
+
+    internal class BepuPhysicsBody : IPhysicsBody
+    {
+        public BodyHandle Handle { get; }
+        public Simulation Simulation { get; }
+        public long Id { get; }
+
+        public BepuPhysicsBody(BodyHandle handle, Simulation simulation, long id)
+        {
+            Handle = handle;
+            Simulation = simulation;
+            Id = id;
+        }
+
+        public Vector3 Position
+        {
+            get => Simulation.Bodies[Handle].Pose.Position;
+            set { var b = Simulation.Bodies[Handle]; b.Pose.Position = value; }
+        }
+
+        public Quaternion Rotation
+        {
+            get => Simulation.Bodies[Handle].Pose.Orientation;
+            set { var b = Simulation.Bodies[Handle]; b.Pose.Orientation = value; }
+        }
+
+        public Vector3 LinearVelocity
+        {
+            get => Simulation.Bodies[Handle].Velocity.Linear;
+            set { var b = Simulation.Bodies[Handle]; b.Velocity.Linear = value; }
+        }
+
+        public void AddForce(Vector3 force)
+        {
+            var b = Simulation.Bodies[Handle];
+            b.ApplyLinearImpulse(force);
         }
     }
 
@@ -194,7 +301,6 @@ namespace V12.Core.Systems
         }
     }
 
-
     public struct NarrowPhaseCallbacks : INarrowPhaseCallbacks
     {
         public void Initialize(Simulation simulation) { }
@@ -219,7 +325,6 @@ namespace V12.Core.Systems
         public Vector3 Gravity;
         Vector3Wide gravityWide;
 
-        // Use DontIntegrate instead of Nonintegrated
         public readonly AngularIntegrationMode AngularIntegrationMode => (AngularIntegrationMode)0;
         public readonly bool AllowSubsteppingForFocusBodies => false;
         public bool AllowSubstepsForUnconstrainedBodies => false;
