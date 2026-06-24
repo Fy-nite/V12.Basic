@@ -216,11 +216,26 @@ namespace V12.Basic.Components
 
             UpdateCamera(deltaTime);
             UpdateMovement(deltaTime);
+
+            if (IsXrMode && _vrInput is VRInputProvider vr)
+            {
+                var pos = Owner?.LocalTransform.Position ?? Vector3.Zero;
+                vr.SetWorldState(pos, _yaw);
+            }
         }
 
         private void UpdateCamera(float deltaTime)
         {
-            if (IsXrMode || _camera == null) return;
+            if (IsXrMode)
+            {
+                Vector2 xrLook = _actions?.GetVector2("Look") ?? Vector2.Zero;
+                float xrYawDelta = (-xrLook.X) * _lookSensitivity * deltaTime;
+                if (MathF.Abs(xrYawDelta) >= 0.0001f)
+                    _yaw += xrYawDelta;
+                return;
+            }
+
+            if (_camera == null) return;
 
             float mouseX, mouseY;
             lock (_mouseLock)
@@ -272,28 +287,31 @@ namespace V12.Basic.Components
 
             if (IsXrMode && _vrInput != null)
             {
+                // Combine body yaw (right-stick rotation) with headset local yaw
+                // so movement direction stays correct after body rotation.
                 var headRot = _vrInput.HeadOrientation;
-                Vector3 headForward = Vector3.Transform(-Vector3.UnitZ, headRot);
-                Vector3 headRight = Vector3.Transform(Vector3.UnitX, headRot);
+                float bodyYaw = _vrInput.BodyYaw;
+                var worldRot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, bodyYaw) * headRot;
 
                 if (_isFlying)
                 {
+                    Vector3 flyForward = Vector3.Transform(Vector3.UnitZ, worldRot);
+                    Vector3 flyRight = Vector3.Transform(Vector3.UnitX, worldRot);
                     float ascend = _actions?.GetAxis("FlyUp") ?? 0f;
                     float descend = _actions?.GetAxis("FlyDown") ?? 0f;
-                    Vector3 flyMove = (headForward * move.Y + headRight * move.X + Vector3.UnitY * (ascend - descend))
+                    Vector3 flyMove = (flyForward * move.Y + flyRight * move.X + Vector3.UnitY * (ascend - descend))
                                       * speed * deltaTime;
                     pos += flyMove;
                 }
                 else
                 {
-                    headForward.Y = 0f;
-                    float fwdLen = headForward.Length();
-                    if (fwdLen > 0.001f) headForward /= fwdLen;
-                    headRight.Y = 0f;
-                    float rightLen = headRight.Length();
-                    if (rightLen > 0.001f) headRight /= rightLen;
+                    Vector3 worldForward = Vector3.Transform(Vector3.UnitZ, worldRot);
+                    worldForward.Y = 0f;
+                    float fwdLen = worldForward.Length();
+                    if (fwdLen > 0.001f) worldForward /= fwdLen;
+                    Vector3 worldRight = Vector3.Cross(Vector3.UnitY, worldForward);
 
-                    Vector3 xrMove = (headForward * move.Y + headRight * move.X) * speed;
+                    Vector3 xrMove = (worldForward * move.Y + worldRight * move.X) * speed;
                     pos += xrMove * deltaTime;
                 }
 
