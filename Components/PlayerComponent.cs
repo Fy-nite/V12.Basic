@@ -21,10 +21,12 @@ namespace V12.Basic.Components
         private bool  _enableHandTracking   = true;
         private float _vrMoveSpeed          = 3f;
         private bool  _vrSmoothLocomotion   = true;
+        public bool IsXrMode;
         private bool _isFlying;
         private float _flySpeed = 8f;
         private InputService? _input;
         private InputActionMap _actions;
+        private IVRInputProvider _vrInput;
 
         private const float MaxPitch = MathF.PI / 2f - 0.05f;
         private const float MinPitch = -MathF.PI / 2f + 0.05f;
@@ -157,19 +159,27 @@ namespace V12.Basic.Components
             _yaw = 0f;
             _pitch = 0f;
 
-            _camera = worldElement.FindChildByName("PlayerCamera3D");
-            if (_camera == null)
+            if (IsXrMode)
             {
-                _camera = new Element { Name = "PlayerCamera3D", Active = true };
-                _camera.AddComponent(new CameraComponent { Active = true, IsCurrent = true });
-                _camera.AddComponent(new AudioListenerComponent { Active = true });
-                _camera.LocalTransform = new TRS
+                _camera = null;
+                _vrInput = GameRoot.Instance.Registry.Get<IVRInputProvider>();
+            }
+            else
+            {
+                _camera = worldElement.FindChildByName("PlayerCamera3D");
+                if (_camera == null)
                 {
-                    Position = new Vector3(0, 1.7f, 0),
-                    Rotation = Quaternion.Identity,
-                    Scale = Vector3.One
-                };
-                GameRoot.Instance.SelectedWorld?.AddElement(_camera);
+                    _camera = new Element { Name = "PlayerCamera3D", Active = true };
+                    _camera.AddComponent(new CameraComponent { Active = true, IsCurrent = true });
+                    _camera.AddComponent(new AudioListenerComponent { Active = true });
+                    _camera.LocalTransform = new TRS
+                    {
+                        Position = new Vector3(0, 1.7f, 0),
+                        Rotation = Quaternion.Identity,
+                        Scale = Vector3.One
+                    };
+                    GameRoot.Instance.SelectedWorld?.AddElement(_camera);
+                }
             }
         }
 
@@ -201,7 +211,7 @@ namespace V12.Basic.Components
             {
                 var look = _actions.GetVector2("Look");
                 var move = _actions.GetVector2("Move");
-                Console.WriteLine($"DBG look=({look.X:F2},{look.Y:F2}) move=({move.X:F2},{move.Y:F2}) flying={_isFlying} _yaw={_yaw:F2}");
+                //Console.WriteLine($"DBG look=({look.X:F2},{look.Y:F2}) move=({move.X:F2},{move.Y:F2}) flying={_isFlying} _yaw={_yaw:F2}");
             }
 
             UpdateCamera(deltaTime);
@@ -210,7 +220,7 @@ namespace V12.Basic.Components
 
         private void UpdateCamera(float deltaTime)
         {
-            if (_camera == null) return;
+            if (IsXrMode || _camera == null) return;
 
             float mouseX, mouseY;
             lock (_mouseLock)
@@ -259,6 +269,38 @@ namespace V12.Basic.Components
             float speed = _isFlying ? _flySpeed : _moveSpeed;
             if (sprint)
                 speed *= _sprintMultiplier;
+
+            if (IsXrMode && _vrInput != null)
+            {
+                var headRot = _vrInput.HeadOrientation;
+                Vector3 headForward = Vector3.Transform(-Vector3.UnitZ, headRot);
+                Vector3 headRight = Vector3.Transform(Vector3.UnitX, headRot);
+
+                if (_isFlying)
+                {
+                    float ascend = _actions?.GetAxis("FlyUp") ?? 0f;
+                    float descend = _actions?.GetAxis("FlyDown") ?? 0f;
+                    Vector3 flyMove = (headForward * move.Y + headRight * move.X + Vector3.UnitY * (ascend - descend))
+                                      * speed * deltaTime;
+                    pos += flyMove;
+                }
+                else
+                {
+                    headForward.Y = 0f;
+                    float fwdLen = headForward.Length();
+                    if (fwdLen > 0.001f) headForward /= fwdLen;
+                    headRight.Y = 0f;
+                    float rightLen = headRight.Length();
+                    if (rightLen > 0.001f) headRight /= rightLen;
+
+                    Vector3 xrMove = (headForward * move.Y + headRight * move.X) * speed;
+                    pos += xrMove * deltaTime;
+                }
+
+                lt.Position = pos;
+                element.LocalTransform = lt;
+                return;
+            }
 
             if (_isFlying)
             {
