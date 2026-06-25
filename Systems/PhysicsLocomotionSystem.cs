@@ -34,9 +34,14 @@ namespace V12.Core.Systems
             foreach (var element in world.Root)
             {
                 var bodyComp = element.GetComponent<PhysicsBodyComponent>();
+                if (bodyComp == null)
+                    continue;
+
                 var loco = element.GetComponent<LocomotionComponent>();
-                
-                if (bodyComp != null && bodyComp.Body == null && loco != null)
+
+                // Create a physics body for every element with a PhysicsBodyComponent,
+                // regardless of whether it also has a LocomotionComponent.
+                if (bodyComp.Body == null)
                 {
                     var lt = element.LocalTransform;
                     var collider = element.GetComponent<ColliderComponent>();
@@ -52,40 +57,55 @@ namespace V12.Core.Systems
                     Console.WriteLine($"Initialized body for {element.Name}");
                 }
 
-                if (bodyComp?.Body == null)
+                if (bodyComp.Body == null)
                     continue;
 
                 if (bodyComp.IsKinematic)
                 {
+                    // Static/kinematic: element transform drives the physics body position
                     var lt = element.LocalTransform;
                     bodyComp.Body.Position = lt.Position;
                     bodyComp.Body.Rotation = lt.Rotation;
                 }
                 else
                 {
+                    // Dynamic: driven by Godot physics.
+                    // V12 only syncs XZ velocity and jump Y — Godot handles gravity.
                     if (loco != null)
                     {
-                        bodyComp.Body.LinearVelocity = loco.Velocity;
+                        var currentBodyVel = bodyComp.Body.LinearVelocity;
+
+                        if (loco.Velocity.Y > 0.1f)
+                        {
+                            // Jump: set full velocity (Godot's gravity takes over the arc)
+                            bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, loco.Velocity.Y, loco.Velocity.Z);
+                            Console.WriteLine($"[Loco] {element.Name}: JUMP vel=({loco.Velocity.X:F2},{loco.Velocity.Y:F2},{loco.Velocity.Z:F2})");
+                            loco.Velocity = new Vector3(loco.Velocity.X, 0, loco.Velocity.Z);
+                        }
+                        else
+                        {
+                            // Normal: sync XZ from V12, preserve Y from Godot
+                            bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, currentBodyVel.Y, loco.Velocity.Z);
+                            Console.WriteLine($"[Loco] {element.Name}: set vel=({loco.Velocity.X:F2},{loco.Velocity.Y:F2},{loco.Velocity.Z:F2}) preserve Y={currentBodyVel.Y:F2}");
+                        }
                     }
 
                     var lt = element.LocalTransform;
                     lt.Position = bodyComp.Body.Position;
+                    Console.WriteLine($"[Loco] {element.Name}: read pos=({lt.Position.X:F2},{lt.Position.Y:F2},{lt.Position.Z:F2})");
 
-                    // Only sync rotation from physics body for non-player elements
-                    // (player rotation/yaw is controlled by PlayerComponent)
                     var isPlayer = element.GetComponent<PlayerComponent>() != null;
                     if (!isPlayer)
-                    {
                         lt.Rotation = bodyComp.Body.Rotation;
-                    }
 
                     element.LocalTransform = lt;
 
-                    // Read velocity back from physics body to capture any modifications
-                    // from Godot's physics tick (gravity, collisions) for loco state.
                     if (loco != null)
                     {
-                        loco.Velocity = bodyComp.Body.LinearVelocity;
+                        var readVel = bodyComp.Body.LinearVelocity;
+                        loco.Velocity = new Vector3(readVel.X, 0, readVel.Z);
+                        loco.IsGrounded = readVel.Y > -1.0f;
+                        Console.WriteLine($"[Loco] {element.Name}: read vel=({readVel.X:F2},{readVel.Y:F2},{readVel.Z:F2}) grounded={loco.IsGrounded}");
                     }
                 }
             }

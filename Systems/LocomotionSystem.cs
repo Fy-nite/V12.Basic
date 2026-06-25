@@ -90,7 +90,6 @@ namespace V12.Core.Systems
                     Vector3 vel = loco.Velocity;
                     vel.X = moveDir.X;
                     vel.Z = moveDir.Z;
-                    vel.Y -= loco.Gravity * deltaTime;
                     loco.Velocity = vel;
 
                     if (_jumpRequested && loco.IsGrounded && loco.CanJump)
