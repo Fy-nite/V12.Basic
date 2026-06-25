@@ -40,9 +40,9 @@ namespace V12.Core.Systems
             if (evt.Type == InputEventType.Axis)
             {
                 if (evt.Name == "move_right") { _moveX = (float)evt.Value; }
-                if (evt.Name == "move_left") { _moveX = -(float)evt.Value; }
+                if (evt.Name == "move_left" && (float)evt.Value > 0f) { _moveX = -(float)evt.Value; }
                 if (evt.Name == "move_forward") { _moveY = -(float)evt.Value; }
-                if (evt.Name == "move_backward") { _moveY = (float)evt.Value; }
+                if (evt.Name == "move_backward" && (float)evt.Value > 0f) { _moveY = (float)evt.Value; }
             }
 
             if (evt.Type == InputEventType.ButtonDown && evt.Name == "run")

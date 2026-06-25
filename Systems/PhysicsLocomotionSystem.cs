@@ -54,7 +54,6 @@ namespace V12.Core.Systems
                         isKinematic: bodyComp.IsKinematic,
                         gravityScale: bodyComp.GravityScale);
                     bodyComp.Body = _physics.CreateBody(desc);
-                    Console.WriteLine($"Initialized body for {element.Name}");
                 }
 
                 if (bodyComp.Body == null)
@@ -79,20 +78,17 @@ namespace V12.Core.Systems
                         {
                             // Jump: set full velocity (Godot's gravity takes over the arc)
                             bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, loco.Velocity.Y, loco.Velocity.Z);
-                            Console.WriteLine($"[Loco] {element.Name}: JUMP vel=({loco.Velocity.X:F2},{loco.Velocity.Y:F2},{loco.Velocity.Z:F2})");
                             loco.Velocity = new Vector3(loco.Velocity.X, 0, loco.Velocity.Z);
                         }
                         else
                         {
                             // Normal: sync XZ from V12, preserve Y from Godot
                             bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, currentBodyVel.Y, loco.Velocity.Z);
-                            Console.WriteLine($"[Loco] {element.Name}: set vel=({loco.Velocity.X:F2},{loco.Velocity.Y:F2},{loco.Velocity.Z:F2}) preserve Y={currentBodyVel.Y:F2}");
                         }
                     }
 
                     var lt = element.LocalTransform;
                     lt.Position = bodyComp.Body.Position;
-                    Console.WriteLine($"[Loco] {element.Name}: read pos=({lt.Position.X:F2},{lt.Position.Y:F2},{lt.Position.Z:F2})");
 
                     var isPlayer = element.GetComponent<PlayerComponent>() != null;
                     if (!isPlayer)
@@ -105,7 +101,6 @@ namespace V12.Core.Systems
                         var readVel = bodyComp.Body.LinearVelocity;
                         loco.Velocity = new Vector3(readVel.X, 0, readVel.Z);
                         loco.IsGrounded = readVel.Y > -1.0f;
-                        Console.WriteLine($"[Loco] {element.Name}: read vel=({readVel.X:F2},{readVel.Y:F2},{readVel.Z:F2}) grounded={loco.IsGrounded}");
                     }
                 }
             }
