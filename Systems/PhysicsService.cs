@@ -221,6 +221,7 @@ namespace V12.Core.Systems
         public BodyHandle Handle { get; }
         public Simulation Simulation { get; }
         public long Id { get; }
+        public bool IsDynamic { get; set; } = true;
 
         public BepuPhysicsBody(BodyHandle handle, Simulation simulation, long id)
         {
@@ -251,6 +252,11 @@ namespace V12.Core.Systems
         {
             var b = Simulation.Bodies[Handle];
             b.ApplyLinearImpulse(force);
+        }
+
+        public void SetKinematic(bool kinematic)
+        {
+            // Bepu backend: no-op for now (not used with Godot frontend)
         }
     }
 

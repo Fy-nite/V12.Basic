@@ -69,22 +69,20 @@ namespace V12.Core.Systems
                 else
                 {
                     // Dynamic: driven by Godot physics.
-                    // V12 only syncs XZ velocity and jump Y — Godot handles gravity.
+                    // V12 only syncs XZ — Godot handles Y (gravity + jump).
                     if (loco != null)
                     {
                         var currentBodyVel = bodyComp.Body.LinearVelocity;
 
                         if (loco.Velocity.Y > 0.1f)
                         {
-                            // Jump: set full velocity (Godot's gravity takes over the arc)
-                            bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, loco.Velocity.Y, loco.Velocity.Z);
+                            // Jump: apply upward impulse (Godot's gravity takes over the arc)
+                            bodyComp.Body.AddForce(new Vector3(0, loco.Velocity.Y, 0));
                             loco.Velocity = new Vector3(loco.Velocity.X, 0, loco.Velocity.Z);
                         }
-                        else
-                        {
-                            // Normal: sync XZ from V12, preserve Y from Godot
-                            bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, currentBodyVel.Y, loco.Velocity.Z);
-                        }
+
+                        // Sync XZ from V12; SyncToGodot preserves Godot's Y for dynamic bodies
+                        bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, currentBodyVel.Y, loco.Velocity.Z);
                     }
 
                     var lt = element.LocalTransform;

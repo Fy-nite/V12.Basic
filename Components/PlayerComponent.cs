@@ -270,6 +270,36 @@ namespace V12.Basic.Components
             };
         }
 
+        /// <summary>
+        /// Returns the aim ray origin and direction for the current mode.
+        /// Desktop: from camera position/orientation.
+        /// XR: from right-hand controller position/orientation.
+        /// </summary>
+        public (Vector3 origin, Vector3 direction) GetAimRay()
+        {
+            if (Owner == null)
+                return (Vector3.Zero, -Vector3.UnitZ);
+
+            if (IsXrMode)
+            {
+                var xr = GameRoot.Instance.Registry.Get<IVRInputProvider>();
+                if (xr != null)
+                {
+                    var origin = xr.RightHandPosition;
+                    var fwd = Vector3.Transform(-Vector3.UnitZ, xr.RightHandOrientation);
+                    var dir = fwd.LengthSquared() > 0.001f ? Vector3.Normalize(fwd) : -Vector3.UnitZ;
+                    return (origin, dir);
+                }
+            }
+
+            var playerPos = Owner.LocalTransform.Position;
+            var camOrigin = playerPos + new Vector3(0, 1.7f, 0);
+            var rot = Quaternion.CreateFromYawPitchRoll(_yaw, _pitch, 0);
+            var camFwd = Vector3.Transform(-Vector3.UnitZ, rot);
+            var camDir = camFwd.LengthSquared() > 0.001f ? Vector3.Normalize(camFwd) : -Vector3.UnitZ;
+            return (camOrigin, camDir);
+        }
+
         private void UpdateMovement(float deltaTime)
         {
             var element = Owner;
