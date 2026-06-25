@@ -14,7 +14,7 @@ namespace V12.Core.Systems
         private InputService? _input;
 
         private float _moveX, _moveY;
-        private bool _jumpRequested;
+        private volatile bool _jumpRequested;
         private bool _isSprinting;
 
         public LocomotionSystem(GameRoot gameRoot)

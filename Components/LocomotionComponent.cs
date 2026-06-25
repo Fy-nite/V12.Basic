@@ -21,7 +21,7 @@ namespace V12.Basic.Components
         public InputMethods PreferredInputMethod { get; internal set; }
         public float SprintMultiplier { get; internal set; }
         public float LookSensitivity { get; internal set; }
-        public bool CanJump { get; internal set; }
+        public bool CanJump { get; set; } = true;
         public float VRMoveSpeed { get; internal set; }
         public bool VRSmoothLocomotion { get; internal set; }
         public bool EnableHandTracking { get; internal set; }
