@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using V12.Components;
 using V12.Core;
@@ -18,15 +19,18 @@ namespace V12.Basic.Components
         private float _jumpStrength     = 6f;
         private float _lookSensitivity  = 1.2f;
         private bool  _canJump          = true;
-        private bool  _enableHandTracking   = true;
-        private float _vrMoveSpeed          = 3f;
-        private bool  _vrSmoothLocomotion   = true;
         public bool IsXrMode;
         private bool _isFlying;
         private float _flySpeed = 8f;
         private InputService? _input;
         private InputActionMap? _actions;
-        private IVRInputProvider? _vrInput;
+        private VRPlayerComponent? _vrComponent;
+
+        private IWorldElement? _xrRoot;
+        private IWorldElement? _xrHead;
+        private IWorldElement? _xrLeftHand;
+        private IWorldElement? _xrRightHand;
+        private int _xrChildCacheTimer;
 
         private const float MaxPitch = MathF.PI / 2f - 0.05f;
         private const float MinPitch = -MathF.PI / 2f + 0.05f;
@@ -95,24 +99,6 @@ namespace V12.Basic.Components
             set { if (_canJump != value) { _canJump = value; MarkDirty(); } }
         }
 
-        public bool EnableHandTracking
-        {
-            get => _enableHandTracking;
-            set { if (_enableHandTracking != value) { _enableHandTracking = value; MarkDirty(); } }
-        }
-
-        public float VRMoveSpeed
-        {
-            get => _vrMoveSpeed;
-            set { if (Math.Abs(_vrMoveSpeed - value) > 0.0001f) { _vrMoveSpeed = MathF.Max(0f, value); MarkDirty(); } }
-        }
-
-        public bool VRSmoothLocomotion
-        {
-            get => _vrSmoothLocomotion;
-            set { if (_vrSmoothLocomotion != value) { _vrSmoothLocomotion = value; MarkDirty(); } }
-        }
-
         public bool IsFlying
         {
             get => _isFlying;
@@ -159,10 +145,12 @@ namespace V12.Basic.Components
             _yaw = 0f;
             _pitch = 0f;
 
-            if (IsXrMode)
+            _vrComponent = worldElement.GetComponent<VRPlayerComponent>();
+            if (_vrComponent != null || IsXrMode)
             {
+                IsXrMode = true;
                 _camera = null;
-                _vrInput = GameRoot.Instance.Registry.Get<IVRInputProvider>();
+                CacheXrChildren();
             }
             else
             {
@@ -196,6 +184,41 @@ namespace V12.Basic.Components
             base.OnDetach(worldElement);
         }
 
+        private void CacheXrChildren()
+        {
+            _xrRoot = null;
+            _xrHead = null;
+            _xrLeftHand = null;
+            _xrRightHand = null;
+            _xrChildCacheTimer = 0;
+
+            if (Owner == null) return;
+
+            foreach (var child in Owner.Children)
+            {
+                if (child.GetComponent<XRRootComponent>() != null)
+                {
+                    _xrRoot = child;
+                    break;
+                }
+            }
+
+            if (_xrRoot == null) return;
+
+            foreach (var child in _xrRoot.Children)
+            {
+                if (child.GetComponent<XRHeadComponent>() != null)
+                    _xrHead = child;
+                else if (child.GetComponent<XRHandComponent>() is XRHandComponent hand)
+                {
+                    if (hand.Side == HandSide.Left)
+                        _xrLeftHand = child;
+                    else
+                        _xrRightHand = child;
+                }
+            }
+        }
+
         private int _frameCount;
 
         public override void Update(float deltaTime)
@@ -214,14 +237,12 @@ namespace V12.Basic.Components
                 //Console.WriteLine($"DBG look=({look.X:F2},{look.Y:F2}) move=({move.X:F2},{move.Y:F2}) flying={_isFlying} _yaw={_yaw:F2}");
             }
 
+            _xrChildCacheTimer++;
+            if (_xrChildCacheTimer > 60)
+                CacheXrChildren();
+
             UpdateCamera(deltaTime);
             UpdateMovement(deltaTime);
-
-            if (IsXrMode && _vrInput is VRInputProvider vr)
-            {
-                var pos = Owner?.LocalTransform.Position ?? Vector3.Zero;
-                vr.SetWorldState(pos, _yaw);
-            }
         }
 
         private void UpdateCamera(float deltaTime)
@@ -280,16 +301,14 @@ namespace V12.Basic.Components
             if (Owner == null)
                 return (Vector3.Zero, -Vector3.UnitZ);
 
-            if (IsXrMode)
+            if (IsXrMode && _xrRightHand != null)
             {
-                var xr = GameRoot.Instance.Registry.Get<IVRInputProvider>();
-                if (xr != null)
-                {
-                    var origin = xr.RightHandPosition;
-                    var fwd = Vector3.Transform(-Vector3.UnitZ, xr.RightHandOrientation);
-                    var dir = fwd.LengthSquared() > 0.001f ? Vector3.Normalize(fwd) : -Vector3.UnitZ;
-                    return (origin, dir);
-                }
+                var m = _xrRightHand.WorldTransform;
+                var handPos = new Vector3(m.M41, m.M42, m.M43);
+                Quaternion handRot = Quaternion.CreateFromRotationMatrix(m);
+                var fwd = Vector3.Transform(-Vector3.UnitZ, handRot);
+                var dir = fwd.LengthSquared() > 0.001f ? Vector3.Normalize(fwd) : -Vector3.UnitZ;
+                return (handPos, dir);
             }
 
             var playerPos = Owner.LocalTransform.Position;
@@ -315,18 +334,16 @@ namespace V12.Basic.Components
             if (sprint)
                 speed *= _sprintMultiplier;
 
-            if (IsXrMode && _vrInput != null)
+            if (IsXrMode)
             {
-                // Combine body yaw (right-stick rotation) with headset local yaw
-                // so movement direction stays correct after body rotation.
-                var headRot = _vrInput.HeadOrientation;
-                float bodyYaw = _vrInput.BodyYaw;
-                var worldRot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, bodyYaw) * headRot;
+                float bodyYaw = _yaw;
 
-                if (_isFlying)
+                if (_isFlying && _xrHead != null)
                 {
-                    Vector3 flyForward = Vector3.Transform(Vector3.UnitZ, worldRot);
-                    Vector3 flyRight = Vector3.Transform(Vector3.UnitX, worldRot);
+                    var m = _xrHead.WorldTransform;
+                    var headRot = Quaternion.CreateFromRotationMatrix(m);
+                    Vector3 flyForward = Vector3.Transform(-Vector3.UnitZ, headRot);
+                    Vector3 flyRight = Vector3.Transform(Vector3.UnitX, headRot);
                     float ascend = _actions?.GetAxis("FlyUp") ?? 0f;
                     float descend = _actions?.GetAxis("FlyDown") ?? 0f;
                     Vector3 flyMove = (flyForward * move.Y + flyRight * move.X + Vector3.UnitY * (ascend - descend))
@@ -335,17 +352,19 @@ namespace V12.Basic.Components
                 }
                 else
                 {
-                    Vector3 worldForward = Vector3.Transform(Vector3.UnitZ, worldRot);
+                    var bodyRot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, bodyYaw);
+                    Vector3 worldForward = Vector3.Transform(-Vector3.UnitZ, bodyRot);
                     worldForward.Y = 0f;
                     float fwdLen = worldForward.Length();
                     if (fwdLen > 0.001f) worldForward /= fwdLen;
-                    Vector3 worldRight = Vector3.Cross(Vector3.UnitY, worldForward);
+                    Vector3 worldRight = Vector3.Cross(worldForward, Vector3.UnitY);
 
                     Vector3 xrMove = (worldForward * move.Y + worldRight * move.X) * speed;
                     pos += xrMove * deltaTime;
                 }
 
                 lt.Position = pos;
+                lt.Rotation = Quaternion.CreateFromYawPitchRoll(_yaw, 0, 0);
                 element.LocalTransform = lt;
                 return;
             }

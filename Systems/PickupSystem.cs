@@ -1,9 +1,11 @@
+using System.Collections.Generic;
 using System.Numerics;
 using V12.Basic.Components;
 using V12.Components;
 using V12.Core.Core.Interfaces;
 using V12.Core.Input;
 using V12.Core.Interfaces.Physics;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.Core.Systems
 {
@@ -13,6 +15,8 @@ namespace V12.Core.Systems
         private IPhysicsBackend _physics;
         private bool _interactHeld;
         private IPhysicsBody _grabbedBody;
+        private IWorldElement _grabbedElement;
+        private IWorldElement _originalParent;
         private Vector3 _grabOffset;
 
         // Shared with main thread for laser visual
@@ -71,6 +75,17 @@ namespace V12.Core.Systems
             var hitBody = didHit ? hit.Body : null;
             var hitPoint = didHit ? hit.Point : origin + direction * RayLength;
 
+            // Don't pick up the player's own body
+            if (didHit && hitBody != null)
+            {
+                var playerBodyComp = player.GetComponent<PhysicsBodyComponent>();
+                if (playerBodyComp?.Body == hitBody)
+                {
+                    didHit = false;
+                    hitBody = null;
+                }
+            }
+
             // Shared state for laser visual
             HasRay = true;
             RayOrigin = origin;
@@ -95,22 +110,100 @@ namespace V12.Core.Systems
                     _grabOffset = bodyPos - hitPoint;
                     _grabbedBody.SetKinematic(true);
                     _grabbedBody.LinearVelocity = Vector3.Zero;
+
+                    _grabbedElement = FindElementByBody(world, _grabbedBody);
+                    _originalParent = null;
+                    if (_grabbedElement != null && player.GetComponent<VRPlayerComponent>() != null)
+                    {
+                        var hand = FindHand(world);
+                        if (hand != null)
+                        {
+                            _originalParent = _grabbedElement.Parent;
+                            if (_originalParent != null)
+                                _originalParent.RemoveChild(_grabbedElement);
+                            else
+                                world.Root.Remove(_grabbedElement);
+                            hand.AddChild(_grabbedElement);
+                            _grabbedElement.LocalTransform = new TRS
+                            {
+                                Position = Vector3.Zero,
+                                Rotation = Quaternion.Identity,
+                                Scale = Vector3.One
+                            };
+                        }
+                    }
                 }
             }
             else if (_grabbedBody != null)
             {
                 _grabbedBody.SetKinematic(false);
                 _grabbedBody.LinearVelocity = Vector3.Zero;
+
+                if (_grabbedElement != null)
+                {
+                    if (_grabbedElement.Parent != null)
+                        _grabbedElement.Parent.RemoveChild(_grabbedElement);
+
+                    _grabbedElement.LocalTransform = new TRS
+                    {
+                        Position = _grabbedBody.Position,
+                        Rotation = Quaternion.Identity,
+                        Scale = Vector3.One
+                    };
+
+                    if (_originalParent != null)
+                        _originalParent.AddChild(_grabbedElement);
+                    else
+                        world.AddElement(_grabbedElement);
+
+                    _grabbedElement = null;
+                    _originalParent = null;
+                }
                 _grabbedBody = null;
             }
         }
 
         private static IWorldElement FindPlayer(V12.Core.World world)
         {
+            IWorldElement? fallback = null;
             foreach (var e in world.Root)
-                if (e.GetComponent<PlayerComponent>() != null)
+            {
+                var pc = e.GetComponent<PlayerComponent>();
+                if (pc == null) continue;
+                fallback ??= e;
+                if (e.GetComponent<VRPlayerComponent>() != null)
+                    return e;
+            }
+            return fallback;
+        }
+
+        private static IWorldElement? FindHand(V12.Core.World world)
+        {
+            foreach (var e in AllElements(world.Root))
+                if (e.Name == "XR_RightHand")
                     return e;
             return null;
+        }
+
+        private static IWorldElement? FindElementByBody(V12.Core.World world, IPhysicsBody body)
+        {
+            foreach (var e in AllElements(world.Root))
+            {
+                var pbc = e.GetComponent<PhysicsBodyComponent>();
+                if (pbc?.Body == body)
+                    return e;
+            }
+            return null;
+        }
+
+        private static IEnumerable<IWorldElement> AllElements(IEnumerable<IWorldElement> elements)
+        {
+            foreach (var e in elements)
+            {
+                yield return e;
+                foreach (var child in AllElements(e.Children))
+                    yield return child;
+            }
         }
     }
 }
