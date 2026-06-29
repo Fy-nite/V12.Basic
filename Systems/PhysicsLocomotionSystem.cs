@@ -50,7 +50,8 @@ namespace V12.Core.Systems
                         ? new Vector3(collider.Width, collider.Height, collider.Depth)
                         : new Vector3(1f, 2f, 1f);
                     var desc = new PhysicsBodyDesc(
-                        lt.Position, lt.Rotation, shape, size,
+                        lt.Position, lt.Rotation == default ? Quaternion.Identity : lt.Rotation,
+                        shape, size,
                         isKinematic: bodyComp.IsKinematic,
                         gravityScale: bodyComp.GravityScale);
                     bodyComp.Body = _physics.CreateBody(desc);

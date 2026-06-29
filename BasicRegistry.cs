@@ -13,6 +13,7 @@ namespace V12.Basic
             gameRoot.Registry.Register("PhysicsService", physics);
             gameRoot.Registry.Register("ScriptSystem", new V12.Core.Systems.ScriptSystem(gameRoot));
             gameRoot.Registry.Register("PickupSystem", new V12.Core.Systems.PickupSystem(gameRoot));
+            gameRoot.Registry.Register("ButtonSystem", new V12.Core.Systems.ButtonSystem(gameRoot));
         }
     }
 }
