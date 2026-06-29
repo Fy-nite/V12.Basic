@@ -364,6 +364,7 @@ namespace V12.Basic.Components
                 }
 
                 lt.Position = pos;
+                lt.Rotation = Quaternion.CreateFromYawPitchRoll(_yaw, 0, 0);
                 element.LocalTransform = lt;
                 return;
             }
