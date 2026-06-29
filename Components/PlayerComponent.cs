@@ -303,9 +303,14 @@ namespace V12.Basic.Components
 
             if (IsXrMode && _xrRightHand != null)
             {
-                var m = _xrRightHand.WorldTransform;
-                var handPos = new Vector3(m.M41, m.M42, m.M43);
-                Quaternion handRot = Quaternion.CreateFromRotationMatrix(m);
+                var handLt = _xrRightHand.LocalTransform;
+                var playerLt = Owner.LocalTransform;
+
+                // World position = playerPos + R(playerYaw) * trackingPos
+                // Same as what Godot produces from the Player→XR_Root→XR_Hand hierarchy.
+                var handPos = Vector3.Transform(handLt.Position, playerLt.Rotation) + playerLt.Position;
+
+                var handRot = playerLt.Rotation * handLt.Rotation;
                 var fwd = Vector3.Transform(-Vector3.UnitZ, handRot);
                 var dir = fwd.LengthSquared() > 0.001f ? Vector3.Normalize(fwd) : -Vector3.UnitZ;
                 return (handPos, dir);
