@@ -38,6 +38,7 @@ namespace V12.Core.Systems
                     continue;
 
                 var loco = element.GetComponent<LocomotionComponent>();
+                var playerComp = element.GetComponent<PlayerComponent>();
 
                 // Create a physics body for every element with a PhysicsBodyComponent,
                 // regardless of whether it also has a LocomotionComponent.
@@ -55,6 +56,11 @@ namespace V12.Core.Systems
                         isKinematic: bodyComp.IsKinematic,
                         gravityScale: bodyComp.GravityScale);
                     bodyComp.Body = _physics.CreateBody(desc);
+                    
+                    if (playerComp != null)
+                    {
+                        Console.WriteLine($"[PhysicsLocomotionSystem] Created physics body for player at ({lt.Position.X:F2}, {lt.Position.Y:F2}, {lt.Position.Z:F2})");
+                    }
                 }
 
                 if (bodyComp.Body == null)
@@ -84,12 +90,17 @@ namespace V12.Core.Systems
 
                         // Sync XZ from V12; SyncToGodot preserves Godot's Y for dynamic bodies
                         bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, currentBodyVel.Y, loco.Velocity.Z);
+                        
+                        if (playerComp != null && (MathF.Abs(loco.Velocity.X) > 0.01f || MathF.Abs(loco.Velocity.Z) > 0.01f))
+                        {
+                            Console.WriteLine($"[PhysicsLocomotionSystem] Setting player body velocity: ({loco.Velocity.X:F2}, {currentBodyVel.Y:F2}, {loco.Velocity.Z:F2})");
+                        }
                     }
 
                     var lt = element.LocalTransform;
                     lt.Position = bodyComp.Body.Position;
 
-                    var isPlayer = element.GetComponent<PlayerComponent>() != null;
+                    var isPlayer = playerComp != null;
                     if (!isPlayer)
                         lt.Rotation = bodyComp.Body.Rotation;
 

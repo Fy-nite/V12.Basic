@@ -332,6 +332,12 @@ namespace V12.Basic.Components
             Vector2 move = _actions?.GetVector2("Move") ?? Vector2.Zero;
             bool sprint = _actions?.GetButton("Sprint") ?? false;
 
+            // Debug output for movement
+            if (MathF.Abs(move.X) > 0.01f || MathF.Abs(move.Y) > 0.01f)
+            {
+                Console.WriteLine($"[PlayerComponent] Move input: ({move.X:F2}, {move.Y:F2}), _yaw: {_yaw:F2}");
+            }
+
             float speed = _isFlying ? _flySpeed : _moveSpeed;
             if (sprint)
                 speed *= _sprintMultiplier;
@@ -404,6 +410,15 @@ namespace V12.Basic.Components
                 Vector3 right = new Vector3(cosY, 0, -sinY);
                 Vector3 moveDir = (forward * move.Y + right * move.X) * speed;
                 loco.Velocity = new Vector3(moveDir.X, loco.Velocity.Y, moveDir.Z);
+                
+                if (MathF.Abs(move.X) > 0.01f || MathF.Abs(move.Y) > 0.01f)
+                {
+                    Console.WriteLine($"[PlayerComponent] Setting loco.Velocity: ({loco.Velocity.X:F2}, {loco.Velocity.Y:F2}, {loco.Velocity.Z:F2})");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[PlayerComponent] WARNING: No LocomotionComponent found on player element!");
             }
 
             // Sync element yaw rotation so LocomotionSystem can read it for movement direction
