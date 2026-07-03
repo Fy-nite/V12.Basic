@@ -166,7 +166,7 @@ namespace V12.Basic.Components
                         Rotation = Quaternion.Identity,
                         Scale = Vector3.One
                     };
-                    GameRoot.Instance.SelectedWorld?.AddElement(_camera);
+                    worldElement.AddChild(_camera);
                 }
             }
         }
@@ -177,8 +177,6 @@ namespace V12.Basic.Components
             _actions = null;
             _input = null;
 
-            if (_camera != null)
-                GameRoot.Instance?.SelectedWorld?.RemoveElement(_camera);
             _camera = null;
 
             base.OnDetach(worldElement);
@@ -279,14 +277,11 @@ namespace V12.Basic.Components
                 _pitch = Math.Clamp(_pitch, MinPitch, MaxPitch);
             }
 
-            // Camera is a root-level element, so its WorldTransform = LocalTransform.
-            // We set the camera's world position and rotation directly.
-            // Always update position to carry player movement to the renderer.
-            Vector3 playerPos = Owner?.LocalTransform.Position ?? Vector3.Zero;
+            // Camera is a child of the Player element, so LocalTransform is relative.
             _camera.LocalTransform = new TRS
             {
-                Position = playerPos + new Vector3(0, 1.7f, 0),
-                Rotation = Quaternion.CreateFromYawPitchRoll(_yaw, _pitch, 0),
+                Position = new Vector3(0, 1.7f, 0),
+                Rotation = Quaternion.CreateFromYawPitchRoll(0, _pitch, 0),
                 Scale = Vector3.One
             };
         }
@@ -316,10 +311,12 @@ namespace V12.Basic.Components
                 return (handPos, dir);
             }
 
-            var playerPos = Owner.LocalTransform.Position;
-            var camOrigin = playerPos + new Vector3(0, 1.7f, 0);
-            var rot = Quaternion.CreateFromYawPitchRoll(_yaw, _pitch, 0);
-            var camFwd = Vector3.Transform(-Vector3.UnitZ, rot);
+            if (_camera == null)
+                return (Vector3.Zero, -Vector3.UnitZ);
+
+            var camWorld = _camera.WorldTransform;
+            var camOrigin = new Vector3(camWorld.M41, camWorld.M42, camWorld.M43);
+            var camFwd = new Vector3(-camWorld.M31, -camWorld.M32, -camWorld.M33);
             var camDir = camFwd.LengthSquared() > 0.001f ? Vector3.Normalize(camFwd) : -Vector3.UnitZ;
             return (camOrigin, camDir);
         }
