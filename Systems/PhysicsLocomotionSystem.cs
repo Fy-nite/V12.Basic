@@ -24,12 +24,19 @@ namespace V12.Core.Systems
         public void Update(GameRoot g) {}
         public void Update(float deltaTime)
         {
-            var world = _gameRoot.SelectedWorld;
-            if (world == null || _physics == null) 
-                return;
+            if (_physics == null) return;
 
             // Step physics before reading body state
             _physics.Step(deltaTime);
+
+            // Process both the selected world and the persistent world (Player lives there)
+            ProcessWorld(_gameRoot.SelectedWorld, deltaTime);
+            ProcessWorld(_gameRoot.PersistentWorld, deltaTime);
+        }
+
+        private void ProcessWorld(World? world, float deltaTime)
+        {
+            if (world == null) return;
 
             foreach (var element in world.Root)
             {

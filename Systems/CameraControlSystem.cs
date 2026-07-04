@@ -52,9 +52,10 @@ namespace V12.Core.Systems
 
         public void Update(float deltaTime)
         {
-            var world = _gameRoot.SelectedWorld;
-            if (world == null) return;
-            var player = world.FindElementWithComponent<PlayerComponent>();
+            // Player lives in PersistentWorld — search there first, fall back to SelectedWorld
+            var player = _gameRoot.PersistentWorld.FindElementWithComponent<PlayerComponent>();
+            if (player == null && _gameRoot.SelectedWorld != null)
+                player = _gameRoot.SelectedWorld.FindElementWithComponent<PlayerComponent>();
             if (player == null)
                 return;
             var cameraElement = player.FindChildByNameRecursive("PlayerCamera3D");
