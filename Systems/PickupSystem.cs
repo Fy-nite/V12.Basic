@@ -56,10 +56,9 @@ namespace V12.Core.Systems
 
         public void Update(float deltaTime)
         {
-            var world = _gameRoot.SelectedWorld;
-            if (world == null || _physics == null) return;
+            if (_physics == null) return;
 
-            var player = FindPlayer(world);
+            var player = FindPlayer();
             if (player == null) return;
 
             var playerComp = player.GetComponent<PlayerComponent>();
@@ -111,18 +110,28 @@ namespace V12.Core.Systems
                     _grabbedBody.SetKinematic(true);
                     _grabbedBody.LinearVelocity = Vector3.Zero;
 
-                    _grabbedElement = FindElementByBody(world, _grabbedBody);
+                    _grabbedElement = _gameRoot.FindElement(e =>
+                    {
+                        var pbc = e.GetComponent<PhysicsBodyComponent>();
+                        return pbc?.Body == _grabbedBody;
+                    });
                     _originalParent = null;
                     if (_grabbedElement != null && player.GetComponent<VRPlayerComponent>() != null)
                     {
-                        var hand = FindHand(world);
+                        var hand = _gameRoot.FindElementsWithComponent<VRPlayerComponent>()
+                            .SelectMany(e => e.Children)
+                            .FirstOrDefault(c => c.Name == "XR_RightHand")
+                            ?? _gameRoot.FindElement(e => e.Name == "XR_RightHand");
                         if (hand != null)
                         {
                             _originalParent = _grabbedElement.Parent;
                             if (_originalParent != null)
                                 _originalParent.RemoveChild(_grabbedElement);
                             else
-                                world.Root.Remove(_grabbedElement);
+                            {
+                                var elWorld = _gameRoot.GetWorldForElement(_grabbedElement);
+                                elWorld?.RemoveElement(_grabbedElement);
+                            }
                             hand.AddChild(_grabbedElement);
                             _grabbedElement.LocalTransform = new TRS
                             {
@@ -154,7 +163,10 @@ namespace V12.Core.Systems
                     if (_originalParent != null)
                         _originalParent.AddChild(_grabbedElement);
                     else
-                        world.AddElement(_grabbedElement);
+                    {
+                        var targetWorld = _gameRoot.GetWorldForElement(_grabbedElement) ?? _gameRoot.SelectedWorld;
+                        targetWorld?.AddElement(_grabbedElement);
+                    }
 
                     _grabbedElement = null;
                     _originalParent = null;
@@ -163,47 +175,17 @@ namespace V12.Core.Systems
             }
         }
 
-        private static IWorldElement FindPlayer(V12.Core.World world)
+        private IWorldElement? FindPlayer()
         {
-            IWorldElement? fallback = null;
-            foreach (var e in world.Root)
+            // Use the ECS query API — searches PersistentWorld, SelectedWorld, etc.
+            foreach (var e in _gameRoot.FindElementsWithComponent<PlayerComponent>())
             {
-                var pc = e.GetComponent<PlayerComponent>();
-                if (pc == null) continue;
-                fallback ??= e;
                 if (e.GetComponent<VRPlayerComponent>() != null)
                     return e;
             }
-            return fallback;
+            // Fallback to any player
+            return _gameRoot.FindElementWithComponent<PlayerComponent>();
         }
 
-        private static IWorldElement? FindHand(V12.Core.World world)
-        {
-            foreach (var e in AllElements(world.Root))
-                if (e.Name == "XR_RightHand")
-                    return e;
-            return null;
-        }
-
-        private static IWorldElement? FindElementByBody(V12.Core.World world, IPhysicsBody body)
-        {
-            foreach (var e in AllElements(world.Root))
-            {
-                var pbc = e.GetComponent<PhysicsBodyComponent>();
-                if (pbc?.Body == body)
-                    return e;
-            }
-            return null;
-        }
-
-        private static IEnumerable<IWorldElement> AllElements(IEnumerable<IWorldElement> elements)
-        {
-            foreach (var e in elements)
-            {
-                yield return e;
-                foreach (var child in AllElements(e.Children))
-                    yield return child;
-            }
-        }
     }
 }

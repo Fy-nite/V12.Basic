@@ -56,16 +56,15 @@ namespace V12.Core.Systems
 
         public void Update(float deltaTime)
         {
-            // Process both the selected world and the persistent world (Player lives there)
-            ProcessWorld(_gameRoot.SelectedWorld, deltaTime);
-            ProcessWorld(_gameRoot.PersistentWorld, deltaTime);
+            // Process all active worlds via the ECS-style query API
+            foreach (var world in _gameRoot.ActiveWorlds)
+                ProcessWorld(world, deltaTime);
 
             _jumpRequested = false;
         }
 
-        private void ProcessWorld(World? world, float deltaTime)
+        private void ProcessWorld(World world, float deltaTime)
         {
-            if (world == null) return;
             
             foreach (var element in world.Root)
             {

@@ -50,10 +50,9 @@ namespace V12.Core.Systems
         public void Update(float deltaTime)
         {
             EnsureInitialized();
-            var world = _gameRoot.SelectedWorld;
-            if (world == null || _physics == null) return;
+            if (_physics == null) return;
 
-            var player = FindPlayer(world);
+            var player = _gameRoot.FindElementWithComponent<PlayerComponent>();
             if (player == null) return;
 
             var playerComp = player.GetComponent<PlayerComponent>();
@@ -68,7 +67,12 @@ namespace V12.Core.Systems
 
             if (didHit && hit.Body != null)
             {
-                hitElement = FindElementByBody(world, hit.Body);
+                // Search all active worlds for the element with this physics body
+                hitElement = _gameRoot.FindElement(e =>
+                {
+                    var pbc = e.GetComponent<PhysicsBodyComponent>();
+                    return pbc?.Body == hit.Body;
+                });
                 if (hitElement != null)
                     button = hitElement.GetComponent<ButtonComponent>();
             }
@@ -91,36 +95,5 @@ namespace V12.Core.Systems
             _interactDown = false;
         }
 
-        private static IWorldElement FindPlayer(World world)
-        {
-            foreach (var e in world.Root)
-            {
-                var pc = e.GetComponent<PlayerComponent>();
-                if (pc != null)
-                    return e;
-            }
-            return null;
-        }
-
-        private static IWorldElement FindElementByBody(World world, IPhysicsBody body)
-        {
-            foreach (var e in AllElements(world.Root))
-            {
-                var pbc = e.GetComponent<PhysicsBodyComponent>();
-                if (pbc?.Body == body)
-                    return e;
-            }
-            return null;
-        }
-
-        private static IEnumerable<IWorldElement> AllElements(IEnumerable<IWorldElement> elements)
-        {
-            foreach (var e in elements)
-            {
-                yield return e;
-                foreach (var child in AllElements(e.Children))
-                    yield return child;
-            }
-        }
     }
 }

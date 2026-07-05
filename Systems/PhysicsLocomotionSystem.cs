@@ -29,14 +29,13 @@ namespace V12.Core.Systems
             // Step physics before reading body state
             _physics.Step(deltaTime);
 
-            // Process both the selected world and the persistent world (Player lives there)
-            ProcessWorld(_gameRoot.SelectedWorld, deltaTime);
-            ProcessWorld(_gameRoot.PersistentWorld, deltaTime);
+            // Process all active worlds via the ECS-style query API
+            foreach (var world in _gameRoot.ActiveWorlds)
+                ProcessWorld(world, deltaTime);
         }
 
-        private void ProcessWorld(World? world, float deltaTime)
+        private void ProcessWorld(World world, float deltaTime)
         {
-            if (world == null) return;
 
             foreach (var element in world.Root)
             {

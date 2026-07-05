@@ -52,15 +52,16 @@ namespace V12.Core.Systems
         public void Update(GameRoot gameRoot)
         {
             _scripts.Clear();
-            var world = gameRoot.SelectedWorld;
-            if (world == null) return;
 
-            world.Lock.EnterReadLock();
-            try
+            foreach (var world in gameRoot.ActiveWorlds)
             {
-                CollectScripts(world.Root);
+                world.Lock.EnterReadLock();
+                try
+                {
+                    CollectScripts(world.Root);
+                }
+                finally { world.Lock.ExitReadLock(); }
             }
-            finally { world.Lock.ExitReadLock(); }
         }
 
         private void CollectScripts(IReadOnlyList<IWorldElement> elements)
