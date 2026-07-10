@@ -1,6 +1,6 @@
 ﻿using System.Numerics;
 using V12.Core;
-
+// a few minor slurs
 namespace V12.Basic
 {
     public class BasicRegistry
