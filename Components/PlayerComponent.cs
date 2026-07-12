@@ -158,7 +158,7 @@ namespace V12.Basic.Components
                 if (_camera == null)
                 {
                     _camera = new Element { Name = "PlayerCamera3D", Active = true };
-                    _camera.AddComponent(new CameraComponent { Active = true, IsCurrent = true });
+                    _camera.AddComponent(new CameraComponent { Active = true, IsCurrent = true, FarClip = 5000f });
                     _camera.AddComponent(new AudioListenerComponent { Active = true });
                     _camera.LocalTransform = new TRS
                     {

@@ -116,6 +116,7 @@ namespace V12.Core.Systems
 
         private TypedIndex CreateShape(in PhysicsBodyDesc desc)
         {
+          
             switch (desc.Shape)
             {
                 case MeshShape.Sphere:
