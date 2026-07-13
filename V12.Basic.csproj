@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\V12\V12.csproj" />
+    <PackageReference Include="Finite.V12" Version="1.0.0" />
   </ItemGroup>
 
 </Project>
