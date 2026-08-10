@@ -47,6 +47,14 @@ namespace V12.Core.Systems
             Update(deltaTime);
         }
 
+        Vector3 IPhysicsBackend.MoveKinematic(IPhysicsBody body, Vector3 delta)
+        {
+            // Bepu backend: no sliding — just apply the full delta to the body.
+            if (body is BepuPhysicsBody b)
+                b.Position = b.Position + delta;
+            return delta;
+        }
+
         IPhysicsBody IPhysicsBackend.CreateBody(in PhysicsBodyDesc desc)
         {
             TypedIndex shapeIndex = CreateShape(desc);

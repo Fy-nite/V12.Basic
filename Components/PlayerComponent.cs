@@ -348,10 +348,8 @@ namespace V12.Basic.Components
 
                 if (_isFlying && _xrHead != null)
                 {
-                    var m = _xrHead.WorldTransform;
-                    var headRot = Quaternion.CreateFromRotationMatrix(m);
-                    Vector3 flyForward = Vector3.Transform(-Vector3.UnitZ, headRot);
-                    Vector3 flyRight = Vector3.Transform(Vector3.UnitX, headRot);
+                    Vector3 flyForward = ForwardOf(_xrHead);
+                    Vector3 flyRight = RightOf(_xrHead);
                     float ascend = _actions?.GetAxis("FlyUp") ?? 0f;
                     float descend = _actions?.GetAxis("FlyDown") ?? 0f;
                     Vector3 flyMove = (flyForward * move.Y + flyRight * move.X + Vector3.UnitY * (ascend - descend))
@@ -360,11 +358,14 @@ namespace V12.Basic.Components
                 }
                 else
                 {
-                    var bodyRot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, bodyYaw);
-                    Vector3 worldForward = Vector3.Transform(-Vector3.UnitZ, bodyRot);
+                    // Head-relative locomotion: move the way you're looking —
+                    // but only the horizontal (yaw) component. Looking up/down
+                    // must not push you up/down or tilt the direction.
+                    Vector3 worldForward = _xrHead != null ? ForwardOf(_xrHead) : BodyForward(bodyYaw);
                     worldForward.Y = 0f;
                     float fwdLen = worldForward.Length();
                     if (fwdLen > 0.001f) worldForward /= fwdLen;
+                    else worldForward = -Vector3.UnitZ;
                     Vector3 worldRight = Vector3.Cross(worldForward, Vector3.UnitY);
 
                     Vector3 xrMove = (worldForward * move.Y + worldRight * move.X) * speed;
@@ -424,6 +425,39 @@ namespace V12.Basic.Components
             // Sync element yaw rotation so LocomotionSystem can read it for movement direction
             lt.Rotation = Quaternion.CreateFromYawPitchRoll(_yaw, 0, 0);
             element.LocalTransform = lt;
+        }
+
+        // ── Direction helpers ───────────────────────────────────────────────
+
+        /// <summary>
+        /// World-space forward (-Z) of an element, extracted from its world
+        /// transform matrix rows and normalised — so any scale in the element's
+        /// transform (e.g. the XR head's 0.1x visualiser scale) doesn't corrupt
+        /// the direction. <c>Quaternion.CreateFromRotationMatrix</c> on a scaled
+        /// matrix returns a bogus quaternion, which made head-relative movement
+        /// only ever point forward/backward.
+        /// </summary>
+        private static Vector3 ForwardOf(IWorldElement el)
+        {
+            var m = el.WorldTransform;
+            var fwd = new Vector3(-m.M31, -m.M32, -m.M33);
+            float len = fwd.Length();
+            return len > 1e-6f ? fwd / len : -Vector3.UnitZ;
+        }
+
+        /// <summary>World-space right (+X) of an element, scale-invariant.</summary>
+        private static Vector3 RightOf(IWorldElement el)
+        {
+            var m = el.WorldTransform;
+            var right = new Vector3(m.M11, m.M12, m.M13);
+            float len = right.Length();
+            return len > 1e-6f ? right / len : Vector3.UnitX;
+        }
+
+        private static Vector3 BodyForward(float yaw)
+        {
+            var bodyRot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, yaw);
+            return Vector3.Transform(-Vector3.UnitZ, bodyRot);
         }
 
         public override IWorldElement BuildUI()

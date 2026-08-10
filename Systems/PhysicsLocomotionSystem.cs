@@ -74,9 +74,30 @@ namespace V12.Core.Systems
 
                 if (bodyComp.IsKinematic)
                 {
-                    // Static/kinematic: element transform drives the physics body position
+                    // Static/kinematic: element transform drives the physics body.
+                    // Top-level kinematic bodies (e.g. the XR player capsule) slide
+                    // along walls via BodyTestMotion so they don't clip through the
+                    // world. Nested kinematic bodies (e.g. grabbed boxes re-parented
+                    // to a hand, whose local transform is identity) are teleported
+                    // directly as before.
                     var lt = element.LocalTransform;
-                    bodyComp.Body.Position = lt.Position;
+                    var current = bodyComp.Body.Position;
+                    var desired = lt.Position;
+
+                    if (element.Parent == null)
+                    {
+                        var delta = desired - current;
+                        if (delta.LengthSquared() > 1e-8f)
+                        {
+                            var applied = _physics.MoveKinematic(bodyComp.Body, delta);
+                            lt.Position = current + applied;
+                            element.LocalTransform = lt;
+                        }
+                    }
+                    else
+                    {
+                        bodyComp.Body.Position = desired;
+                    }
                     bodyComp.Body.Rotation = lt.Rotation;
                 }
                 else
