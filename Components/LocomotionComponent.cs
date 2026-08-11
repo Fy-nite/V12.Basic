@@ -22,6 +22,7 @@ namespace V12.Basic.Components
         public float SprintMultiplier { get; internal set; }
         public float LookSensitivity { get; internal set; }
         public bool CanJump { get; set; } = true;
+        public float Acceleration { get; set; } = 0f;
         public float VRMoveSpeed { get; internal set; }
         public bool VRSmoothLocomotion { get; internal set; }
         public bool EnableHandTracking { get; internal set; }

@@ -231,6 +231,8 @@ namespace V12.Core.Systems
         public Simulation Simulation { get; }
         public long Id { get; }
         public bool IsDynamic { get; set; } = true;
+        public bool IsCharacterController => false;
+        public bool IsOnFloor => false;
 
         public BepuPhysicsBody(BodyHandle handle, Simulation simulation, long id)
         {

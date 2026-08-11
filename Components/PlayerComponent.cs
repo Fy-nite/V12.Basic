@@ -247,10 +247,9 @@ namespace V12.Basic.Components
         {
             if (IsXrMode)
             {
-                Vector2 xrLook = _actions?.GetVector2("Look") ?? Vector2.Zero;
-                float xrYawDelta = (-xrLook.X) * _lookSensitivity * deltaTime;
-                if (MathF.Abs(xrYawDelta) >= 0.0001f)
-                    _yaw += xrYawDelta;
+                // XR: the head-mounted display IS the camera. There is no look
+                // input here — a right-stick yaw would rotate the whole world
+                // around the player, which is disorienting and non-standard.
                 return;
             }
 
@@ -335,7 +334,7 @@ namespace V12.Basic.Components
             // Debug output for movement
             if (MathF.Abs(move.X) > 0.01f || MathF.Abs(move.Y) > 0.01f)
             {
-                Console.WriteLine($"[PlayerComponent] Move input: ({move.X:F2}, {move.Y:F2}), _yaw: {_yaw:F2}");
+                // Console.WriteLine($"[PlayerComponent] Move input: ({move.X:F2}, {move.Y:F2}), _yaw: {_yaw:F2}");
             }
 
             float speed = _isFlying ? _flySpeed : _moveSpeed;
@@ -344,33 +343,25 @@ namespace V12.Basic.Components
 
             if (IsXrMode)
             {
+                var xrLoco = element.GetComponent<LocomotionComponent>();
+                if (xrLoco != null)
+                {
+                    UpdateXrCharacterController(element, xrLoco, move, sprint, deltaTime);
+                    return;
+                }
+
+                // Fallback (no LocomotionComponent): legacy direct move so the
+                // player still responds to input.
                 float bodyYaw = _yaw;
+                Vector3 worldForward = _xrHead != null ? ForwardOf(_xrHead) : BodyForward(bodyYaw);
+                worldForward.Y = 0f;
+                float fwdLen = worldForward.Length();
+                if (fwdLen > 0.001f) worldForward /= fwdLen;
+                else worldForward = -Vector3.UnitZ;
+                Vector3 worldRight = Vector3.Cross(worldForward, Vector3.UnitY);
 
-                if (_isFlying && _xrHead != null)
-                {
-                    Vector3 flyForward = ForwardOf(_xrHead);
-                    Vector3 flyRight = RightOf(_xrHead);
-                    float ascend = _actions?.GetAxis("FlyUp") ?? 0f;
-                    float descend = _actions?.GetAxis("FlyDown") ?? 0f;
-                    Vector3 flyMove = (flyForward * move.Y + flyRight * move.X + Vector3.UnitY * (ascend - descend))
-                                      * speed * deltaTime;
-                    pos += flyMove;
-                }
-                else
-                {
-                    // Head-relative locomotion: move the way you're looking —
-                    // but only the horizontal (yaw) component. Looking up/down
-                    // must not push you up/down or tilt the direction.
-                    Vector3 worldForward = _xrHead != null ? ForwardOf(_xrHead) : BodyForward(bodyYaw);
-                    worldForward.Y = 0f;
-                    float fwdLen = worldForward.Length();
-                    if (fwdLen > 0.001f) worldForward /= fwdLen;
-                    else worldForward = -Vector3.UnitZ;
-                    Vector3 worldRight = Vector3.Cross(worldForward, Vector3.UnitY);
-
-                    Vector3 xrMove = (worldForward * move.Y + worldRight * move.X) * speed;
-                    pos += xrMove * deltaTime;
-                }
+                Vector3 xrMove = (worldForward * move.Y + worldRight * move.X) * speed;
+                pos += xrMove * deltaTime;
 
                 lt.Position = pos;
                 lt.Rotation = Quaternion.CreateFromYawPitchRoll(_yaw, 0, 0);
@@ -414,7 +405,7 @@ namespace V12.Basic.Components
                 
                 if (MathF.Abs(move.X) > 0.01f || MathF.Abs(move.Y) > 0.01f)
                 {
-                    Console.WriteLine($"[PlayerComponent] Setting loco.Velocity: ({loco.Velocity.X:F2}, {loco.Velocity.Y:F2}, {loco.Velocity.Z:F2})");
+                    // Console.WriteLine($"[PlayerComponent] Setting loco.Velocity: ({loco.Velocity.X:F2}, {loco.Velocity.Y:F2}, {loco.Velocity.Z:F2})");
                 }
             }
             else
@@ -428,6 +419,82 @@ namespace V12.Basic.Components
         }
 
         // ── Direction helpers ───────────────────────────────────────────────
+
+        /// <summary>
+        /// XR character-controller locomotion. Movement is head-relative using
+        /// only the horizontal (yaw) component — looking up/down never pushes
+        /// you vertically or tilts the direction. The body is driven through
+        /// <see cref="LocomotionComponent.Velocity"/> by PhysicsLocomotionSystem,
+        /// which slides it along walls and owns the element transform, so the
+        /// camera tracks the slid body instead of teleporting ahead of it.
+        /// Gravity, jump and acceleration smoothing are computed here.
+        /// </summary>
+        private void UpdateXrCharacterController(
+            IWorldElement element, LocomotionComponent loco, Vector2 move, bool sprint, float deltaTime)
+        {
+            Vector3 worldForward = _xrHead != null ? ForwardOf(_xrHead) : BodyForward(_yaw);
+            worldForward.Y = 0f;
+            float fwdLen = worldForward.Length();
+            if (fwdLen > 0.001f) worldForward /= fwdLen;
+            else worldForward = -Vector3.UnitZ;
+            Vector3 worldRight = Vector3.Cross(worldForward, Vector3.UnitY);
+
+            float speed = _isFlying ? _flySpeed : _moveSpeed;
+            if (sprint) speed *= _sprintMultiplier;
+
+            Vector3 moveDir = worldForward * move.Y + worldRight * move.X;
+            moveDir.Y = 0f;
+            float len = moveDir.Length();
+            if (len > 1f) moveDir /= len;
+            Vector3 targetHVel = moveDir * speed;
+
+            if (_isFlying)
+            {
+                float ascend = _actions?.GetAxis("FlyUp") ?? 0f;
+                float descend = _actions?.GetAxis("FlyDown") ?? 0f;
+                loco.Velocity = new Vector3(targetHVel.X, (ascend - descend) * speed, targetHVel.Z);
+                loco.IsGrounded = false;
+                return;
+            }
+
+            float accel = loco.Acceleration > 0f ? loco.Acceleration : 0f;
+            if (accel > 0f)
+            {
+                loco.Velocity = new Vector3(
+                    Approach(loco.Velocity.X, targetHVel.X, accel * deltaTime),
+                    loco.Velocity.Y,
+                    Approach(loco.Velocity.Z, targetHVel.Z, accel * deltaTime));
+            }
+            else
+            {
+                loco.Velocity = new Vector3(targetHVel.X, loco.Velocity.Y, targetHVel.Z);
+            }
+
+            if (loco.IsGrounded)
+            {
+                bool jump = loco.CanJump && loco.JumpStrength > 0f && (_actions?.GetButtonDown("Jump") ?? false);
+                var v = loco.Velocity;
+                if (jump)
+                    v.Y = loco.JumpStrength;
+                else
+                    v.Y = 0f; // grounded: is_on_floor() + floor snapping keep us planted
+                loco.Velocity = v;
+            }
+            else
+            {
+                var v = loco.Velocity;
+                v.Y -= loco.Gravity * deltaTime;
+                loco.Velocity = v;
+            }
+        }
+
+        /// <summary>Moves <paramref name="current"/> toward <paramref name="target"/> by at most <paramref name="maxDelta"/>.</summary>
+        private static float Approach(float current, float target, float maxDelta)
+        {
+            return current < target
+                ? MathF.Min(current + maxDelta, target)
+                : MathF.Max(current - maxDelta, target);
+        }
 
         /// <summary>
         /// World-space forward (-Z) of an element, extracted from its world

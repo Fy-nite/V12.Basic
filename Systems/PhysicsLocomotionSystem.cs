@@ -60,6 +60,7 @@ namespace V12.Core.Systems
                         lt.Position, lt.Rotation == default ? Quaternion.Identity : lt.Rotation,
                         shape, size,
                         isKinematic: bodyComp.IsKinematic,
+                        isCharacterController: bodyComp.IsKinematic && loco != null,
                         gravityScale: bodyComp.GravityScale);
                     bodyComp.Body = _physics.CreateBody(desc);
                     
@@ -74,31 +75,49 @@ namespace V12.Core.Systems
 
                 if (bodyComp.IsKinematic)
                 {
-                    // Static/kinematic: element transform drives the physics body.
-                    // Top-level kinematic bodies (e.g. the XR player capsule) slide
-                    // along walls via BodyTestMotion so they don't clip through the
-                    // world. Nested kinematic bodies (e.g. grabbed boxes re-parented
-                    // to a hand, whose local transform is identity) are teleported
-                    // directly as before.
-                    var lt = element.LocalTransform;
-                    var current = bodyComp.Body.Position;
-                    var desired = lt.Position;
-
-                    if (element.Parent == null)
+                    if (loco != null && element.Parent == null)
                     {
-                        var delta = desired - current;
-                        if (delta.LengthSquared() > 1e-8f)
-                        {
-                            var applied = _physics.MoveKinematic(bodyComp.Body, delta);
-                            lt.Position = current + applied;
-                            element.LocalTransform = lt;
-                        }
+                        // Character controller (e.g. the XR player): a Godot
+                        // CharacterBody3D owned by the backend. The ECS owns the
+                        // velocity (gravity, jump, acceleration); the backend runs
+                        // move_and_slide() on the main thread and reads the floor
+                        // state back. The element transform mirrors the slid body
+                        // so the camera never clips into a wall for a frame.
+                        var lt = element.LocalTransform;
+                        bodyComp.Body.LinearVelocity = loco.Velocity;
+                        lt.Position = bodyComp.Body.Position;
+                        element.LocalTransform = lt;
+                        loco.IsGrounded = bodyComp.Body.IsOnFloor;
+                        bodyComp.Body.Rotation = lt.Rotation;
                     }
                     else
                     {
-                        bodyComp.Body.Position = desired;
+                        // Static/kinematic: element transform drives the physics body.
+                        // Top-level kinematic bodies slide along walls via
+                        // BodyTestMotion so they don't clip through the world.
+                        // Nested kinematic bodies (e.g. grabbed boxes re-parented
+                        // to a hand, whose local transform is identity) are
+                        // teleported directly as before.
+                        var lt = element.LocalTransform;
+                        var current = bodyComp.Body.Position;
+                        var desired = lt.Position;
+
+                        if (element.Parent == null)
+                        {
+                            var delta = desired - current;
+                            if (delta.LengthSquared() > 1e-8f)
+                            {
+                                var applied = _physics.MoveKinematic(bodyComp.Body, delta);
+                                lt.Position = current + applied;
+                                element.LocalTransform = lt;
+                            }
+                        }
+                        else
+                        {
+                            bodyComp.Body.Position = desired;
+                        }
+                        bodyComp.Body.Rotation = lt.Rotation;
                     }
-                    bodyComp.Body.Rotation = lt.Rotation;
                 }
                 else
                 {
@@ -120,7 +139,7 @@ namespace V12.Core.Systems
                         
                         if (playerComp != null && (MathF.Abs(loco.Velocity.X) > 0.01f || MathF.Abs(loco.Velocity.Z) > 0.01f))
                         {
-                            Console.WriteLine($"[PhysicsLocomotionSystem] Setting player body velocity: ({loco.Velocity.X:F2}, {currentBodyVel.Y:F2}, {loco.Velocity.Z:F2})");
+                            // Console.WriteLine($"[PhysicsLocomotionSystem] Setting player body velocity: ({loco.Velocity.X:F2}, {currentBodyVel.Y:F2}, {loco.Velocity.Z:F2})");
                         }
                     }
 

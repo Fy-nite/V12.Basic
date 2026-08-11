@@ -72,6 +72,14 @@ namespace V12.Core.Systems
                 var loco = element.GetComponent<LocomotionComponent>();
                 if (loco == null) continue;
 
+                var bodyComponent = element.GetComponent<PhysicsBodyComponent>();
+                // The XR character controller (kinematic body + loco) is driven
+                // entirely by PlayerComponent (head-relative velocity) and
+                // PhysicsLocomotionSystem (slide + grounding). This legacy system
+                // must not override its velocity with world-axis stick input.
+                if (bodyComponent?.IsKinematic == true)
+                    continue;
+
                 var lt = element.LocalTransform;
                 Vector3 pos = lt.Position;
                 var (yaw, pitch, _) = ToEulerAngles(lt.Rotation);
@@ -91,7 +99,6 @@ namespace V12.Core.Systems
 
                 Vector3 moveDir = (forward * _moveY + right * _moveX) * speed;
 
-                var bodyComponent = element.GetComponent<PhysicsBodyComponent>();
                 if (bodyComponent != null)
                 {
                     Vector3 vel = loco.Velocity;
