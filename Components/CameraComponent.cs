@@ -2,6 +2,7 @@ using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.UI;
 using System.Numerics;
 using V12.Components;
 
@@ -108,6 +109,19 @@ namespace V12.Basic.Components
         {
             return new Element();
         }
+
+        /// <summary>Generate editable camera fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Camera");
+            inspector.Enum("Projection", () => Projection, v => Projection = v);
+            inspector.Float("FOV", () => Fov, v => Fov = v);
+            inspector.Float("Near Clip", () => NearClip, v => NearClip = v);
+            inspector.Float("Far Clip", () => FarClip, v => FarClip = v);
+            inspector.Float("Ortho Size", () => OrthoSize, v => OrthoSize = v);
+            inspector.Bool("Is Current", () => IsCurrent, v => IsCurrent = v);
+        }
+
         public override string ToString() =>
             $"Camera(Proj:{Projection} FOV:{Fov:F1} Near:{NearClip:F3} Far:{FarClip:F1} Current:{IsCurrent})";
     }
