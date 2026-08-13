@@ -1,3 +1,6 @@
 [submodule "libs/V12"]
 	path = libs/V12
 	url = https://forgejo.finite.ovh/Finite/V12-Engine.git
+[submodule "libs/Contract"]
+	path = libs/Contract
+	url = https://github.com/Fy-nite/Contract

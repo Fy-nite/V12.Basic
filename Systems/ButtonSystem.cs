@@ -7,6 +7,7 @@ using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Input;
 using V12.Core.Interfaces.Physics;
+using V12.Core.Networking;
 
 namespace V12.Core.Systems
 {
@@ -83,6 +84,7 @@ namespace V12.Core.Systems
                 button.Pressed = true;
                 Console.WriteLine($"[Button] \"{button.Label}\" pressed");
                 button.OnPressed?.Invoke();
+                RpcDispatcher.CallButtonPressed(_gameRoot, hitElement);
             }
             else if (!_interactDown)
             {

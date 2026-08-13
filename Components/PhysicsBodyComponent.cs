@@ -19,6 +19,15 @@ namespace V12.Basic.Components
         public bool IsKinematic { get; set; } = false;
         public float GravityScale { get; set; } = 1f;
 
+        /// <summary>
+        /// True when this element was replicated from the host (received via WorldSync
+        /// or a WorldDelta create). Clients must not locally simulate replicated
+        /// bodies — they run as kinematic followers driven by the host's transform.
+        /// Runtime-only, never serialized back.
+        /// </summary>
+        [BsonIgnore]
+        public bool IsReplicated { get; set; }
+
         public PhysicsBodyComponent() { }
 
         public override IWorldElement BuildUI()

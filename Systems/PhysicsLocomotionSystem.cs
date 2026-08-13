@@ -43,6 +43,53 @@ namespace V12.Core.Systems
                 if (bodyComp == null)
                     continue;
 
+                // Host-replicated body: never simulate locally. Create a kinematic
+                // follower so the client keeps a collidable presence, and drive it
+                // from the host-authoritative transform each tick. The receive path
+                // (TryApplyToElement) writes the TransformComponent directly, NOT
+                // element.LocalTransform, so the pose is read from the transform
+                // component / world matrix, never LocalTransform.
+                if (bodyComp.IsReplicated)
+                {
+                    var wt = element.WorldTransform;
+                    if (!Matrix4x4.Decompose(wt, out _, out var rot, out var trans))
+                    {
+                        var tc = element.GetComponent<TransformComponent>();
+                        if (tc != null)
+                        {
+                            trans = new Vector3(tc.X, tc.Y, tc.Z);
+                            rot = Quaternion.CreateFromYawPitchRoll(tc.RY, tc.RX, tc.RZ);
+                        }
+                        else
+                        {
+                            trans = element.LocalTransform.Position;
+                            rot = element.LocalTransform.Rotation;
+                        }
+                    }
+
+                    if (bodyComp.Body == null)
+                    {
+                        var collider = element.GetComponent<ColliderComponent>();
+                        var shape = collider?.Shape ?? MeshShape.Box;
+                        var size = collider != null
+                            ? new Vector3(collider.Width, collider.Height, collider.Depth)
+                            : new Vector3(1f, 2f, 1f);
+                        var desc = new PhysicsBodyDesc(
+                            trans, rot == default ? Quaternion.Identity : rot,
+                            shape, size,
+                            isKinematic: true,
+                            isCharacterController: false,
+                            gravityScale: bodyComp.GravityScale);
+                        bodyComp.Body = _physics.CreateBody(desc);
+                    }
+                    else
+                    {
+                        bodyComp.Body.Position = trans;
+                        bodyComp.Body.Rotation = rot;
+                    }
+                    continue;
+                }
+
                 var loco = element.GetComponent<LocomotionComponent>();
                 var playerComp = element.GetComponent<PlayerComponent>();
 
@@ -63,7 +110,18 @@ namespace V12.Core.Systems
                         isCharacterController: bodyComp.IsKinematic && loco != null,
                         gravityScale: bodyComp.GravityScale);
                     bodyComp.Body = _physics.CreateBody(desc);
-                    
+
+                    // Host-authoritative movement is replicated through the component
+                    // batch (TransformComponent setters MarkDirty), never the element
+                    // batch (which carries no transform data and is ignored by peers).
+                    // Ensure a TransformComponent exists so this body's motion reaches
+                    // remote clients. Player pose is replicated via RemotePlayerManager,
+                    // so the local player is skipped to avoid redundant traffic.
+                    if (playerComp == null && element.GetComponent<TransformComponent>() == null)
+                    {
+                        element.AddComponent(new TransformComponent(lt.Position.X, lt.Position.Y, lt.Position.Z));
+                    }
+
                     if (playerComp != null)
                     {
                         Console.WriteLine($"[PhysicsLocomotionSystem] Created physics body for player at ({lt.Position.X:F2}, {lt.Position.Y:F2}, {lt.Position.Z:F2})");
