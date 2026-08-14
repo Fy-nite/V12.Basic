@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>V12.Bindings</AssemblyName>
+    <RootNamespace>V12.Bindings</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\V12\V12.csproj" />
+    <ProjectReference Include="..\Contract\Contract.Runtime\Contract.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>

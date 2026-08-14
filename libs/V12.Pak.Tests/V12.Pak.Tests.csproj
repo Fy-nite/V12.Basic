@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>V12.Pak.Tests</AssemblyName>
+    <RootNamespace>V12.Pak.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\V12.Pak\V12.Pak.csproj" />
+    <ProjectReference Include="..\TestGamePak\TestGamePak.csproj" />
+  </ItemGroup>
+
+</Project>
