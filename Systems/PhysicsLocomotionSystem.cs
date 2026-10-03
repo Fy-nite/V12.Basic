@@ -4,11 +4,16 @@ using V12.Basic.Components;
 using V12.Components;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Physics;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.Core.Systems
 {
     public class PhysicsLocomotionSystem : IGameService
     {
+        /// <summary>Seconds after which a held element whose pose stream went silent
+        /// is released (the holding client vanished) and simulation resumes.</summary>
+        private const long GrabHoldTimeoutMs = 3000;
+
         private GameRoot _gameRoot;
         private IPhysicsBackend? _physics;
 
@@ -51,19 +56,36 @@ namespace V12.Core.Systems
                 // component / world matrix, never LocalTransform.
                 if (bodyComp.IsReplicated)
                 {
-                    var wt = element.WorldTransform;
-                    if (!Matrix4x4.Decompose(wt, out _, out var rot, out var trans))
+                    // Stale client grab (holder vanished): resume host-driven following.
+                    if (bodyComp.ClientHeld && AgeMs(bodyComp.LastGrabMoveMs) > GrabHoldTimeoutMs)
+                        bodyComp.ClientHeld = false;
+
+                    Vector3 trans;
+                    Quaternion rot;
+                    if (bodyComp.ClientHeld)
                     {
-                        var tc = element.GetComponent<TransformComponent>();
-                        if (tc != null)
+                        // A remote client drives this element: follow its pose
+                        // instead of the host's (the holding client's local
+                        // PickupSystem writes the same pose, so no fight).
+                        trans = bodyComp.HeldPosition;
+                        rot = bodyComp.HeldRotation == default ? Quaternion.Identity : bodyComp.HeldRotation;
+                    }
+                    else
+                    {
+                        var wt = element.WorldTransform;
+                        if (!Matrix4x4.Decompose(wt, out _, out rot, out trans))
                         {
-                            trans = new Vector3(tc.X, tc.Y, tc.Z);
-                            rot = Quaternion.CreateFromYawPitchRoll(tc.RY, tc.RX, tc.RZ);
-                        }
-                        else
-                        {
-                            trans = element.LocalTransform.Position;
-                            rot = element.LocalTransform.Rotation;
+                            var tc = element.GetComponent<TransformComponent>();
+                            if (tc != null)
+                            {
+                                trans = new Vector3(tc.X, tc.Y, tc.Z);
+                                rot = Quaternion.CreateFromYawPitchRoll(tc.RY, tc.RX, tc.RZ);
+                            }
+                            else
+                            {
+                                trans = element.LocalTransform.Position;
+                                rot = element.LocalTransform.Rotation;
+                            }
                         }
                     }
 
@@ -88,6 +110,64 @@ namespace V12.Core.Systems
                         bodyComp.Body.Rotation = rot;
                     }
                     continue;
+                }
+
+                // Client-held element on the host (a remote client grabbed it):
+                // pause local simulation and mirror the client's pose into the
+                // body and element transform so the host renders the grab and
+                // the pose replicates to every other peer.
+                if (bodyComp.ClientHeld)
+                {
+                    if (AgeMs(bodyComp.LastGrabMoveMs) > GrabHoldTimeoutMs)
+                    {
+                        // Holder vanished — release and resume host simulation.
+                        bodyComp.ClientHeld = false;
+                        // Restore the body we flipped to kinematic while held.
+                        if (bodyComp.Body != null && !bodyComp.Body.IsDynamic)
+                            bodyComp.Body.SetKinematic(false);
+                    }
+                    else
+                    {
+                        var heldPos = bodyComp.HeldPosition;
+                        var heldRot = bodyComp.HeldRotation == default ? Quaternion.Identity : bodyComp.HeldRotation;
+
+                        if (bodyComp.Body == null)
+                        {
+                            var collider = element.GetComponent<ColliderComponent>();
+                            var shape = collider?.Shape ?? MeshShape.Box;
+                            var size = collider != null
+                                ? new Vector3(collider.Width, collider.Height, collider.Depth)
+                                : new Vector3(1f, 2f, 1f);
+                            var desc = new PhysicsBodyDesc(
+                                heldPos, heldRot, shape, size,
+                                isKinematic: true,
+                                isCharacterController: false,
+                                gravityScale: bodyComp.GravityScale);
+                            bodyComp.Body = _physics.CreateBody(desc);
+                        }
+                        else
+                        {
+                            // Flip the body to kinematic while held so position
+                            // writes stick (dynamic bodies only take velocity
+                            // writes in SyncToGodot) and gravity can't accumulate.
+                            if (bodyComp.Body.IsDynamic)
+                                bodyComp.Body.SetKinematic(true);
+                            bodyComp.Body.Position = heldPos;
+                            bodyComp.Body.Rotation = heldRot;
+                            bodyComp.Body.LinearVelocity = Vector3.Zero;
+                        }
+
+                        // Element pose follows the client: LocalTransform also
+                        // mirrors into the TransformComponent (dirty → component
+                        // batch) so every peer converges on the held pose.
+                        element.LocalTransform = new TRS
+                        {
+                            Position = heldPos,
+                            Rotation = heldRot,
+                            Scale = Vector3.One
+                        };
+                        continue;
+                    }
                 }
 
                 var loco = element.GetComponent<LocomotionComponent>();
@@ -218,6 +298,12 @@ namespace V12.Core.Systems
                     }
                 }
             }
+        }
+
+        private static long AgeMs(long epochMs)
+        {
+            var now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            return now - epochMs;
         }
     }
 }
