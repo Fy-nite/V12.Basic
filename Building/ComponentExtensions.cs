@@ -133,6 +133,17 @@ namespace V12.Basic.Building
             => element.SetTransform(element.LocalTransform.Position, new Vector3(xDegrees, yDegrees, zDegrees));
 
         /// <summary>
+        /// Adds a raycast-interactive <see cref="ButtonComponent"/>. Give the element a collider
+        /// and a (kinematic) physics body so the aim ray can hit it.
+        /// </summary>
+        public static ButtonComponent AddButton(this IWorldElement element, string label = "Button", Action? onPressed = null)
+        {
+            var button = new ButtonComponent { Label = label, OnPressed = onPressed };
+            element.AddComponent(button);
+            return button;
+        }
+
+        /// <summary>
         /// Copies every element's <see cref="TransformComponent"/> back into its
         /// <c>LocalTransform</c> (recursively).
         /// </summary>

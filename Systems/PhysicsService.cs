@@ -24,6 +24,9 @@ namespace V12.Core.Systems
         private ThreadDispatcher? _threadDispatcher;
 
         private readonly Dictionary<long, BepuPhysicsBody> _bodyMap = new();
+        // Handle -> body, so a raycast hit's CollidableReference can be resolved back to
+        // the IPhysicsBody (interaction systems match the hit body to an element).
+        private readonly Dictionary<BodyHandle, BepuPhysicsBody> _bodiesByHandle = new();
         private long _nextBodyId;
 
         public void Initialize(GameRoot g)
@@ -67,6 +70,7 @@ namespace V12.Core.Systems
             long id = _nextBodyId++;
             var body = new BepuPhysicsBody(handle, Simulation, id);
             _bodyMap[id] = body;
+            _bodiesByHandle[handle] = body;
             return body;
         }
 
@@ -75,6 +79,7 @@ namespace V12.Core.Systems
             if (body is BepuPhysicsBody b)
             {
                 _bodyMap.Remove(b.Id);
+                _bodiesByHandle.Remove(b.Handle);
                 if (Simulation.Bodies.ActiveSet.Count > 0)
                 {
                     Simulation.Bodies.Remove(b.Handle);
@@ -90,12 +95,20 @@ namespace V12.Core.Systems
 
             if (hitHandler.HitFound)
             {
+                // Resolve the hit collidable back to its IPhysicsBody so callers (the
+                // button/pickup interaction systems) can match it to an element.
+                IPhysicsBody? hitBody = null;
+                var collidable = hitHandler.Collidable;
+                if (collidable.Mobility != BepuPhysics.Collidables.CollidableMobility.Static
+                    && _bodiesByHandle.TryGetValue(collidable.BodyHandle, out var hitBodyImpl))
+                    hitBody = hitBodyImpl;
+
                 hit = new RaycastHit
                 {
                     Point = ray.Origin + ray.Direction * hitHandler.T,
                     Normal = hitHandler.Normal,
                     Distance = hitHandler.T,
-                    Body = null
+                    Body = hitBody
                 };
                 return true;
             }

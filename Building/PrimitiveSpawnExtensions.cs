@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 using V12.Components;
 using V12.Core;
@@ -50,5 +51,22 @@ namespace V12.Basic.Building
 
         public static Element SpawnPlane(this World world, Vector3? at = null, float width = 1f, float depth = 1f, bool dynamic = false, string? name = null)
             => world.SpawnPrimitive(MeshShape.Plane, new Vector3(width, 0.1f, depth), at, dynamic, name);
+
+        /// <summary>
+        /// A raycast-interactive button: a static box (collider + kinematic body so the aim
+        /// ray can hit it) with a <see cref="ButtonComponent"/>. The player presses it with
+        /// the interact input while aiming at it.
+        /// </summary>
+        public static Element SpawnButton(this World world, Vector3? at = null, float size = 0.3f, string label = "Button", Action? onPressed = null)
+        {
+            var element = new Element(label);
+            element.SetTransform(at ?? Vector3.Zero);
+            element.AddCollider(MeshShape.Box, size, size, size);
+            element.AddPhysics(kinematic: true);
+            element.AddMesh(MeshShape.Box, size, size, size);
+            element.AddButton(label, onPressed);
+            world.AddElement(element);
+            return element;
+        }
     }
 }
