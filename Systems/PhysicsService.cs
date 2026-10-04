@@ -244,25 +244,31 @@ namespace V12.Core.Systems
         public Vector3 Position
         {
             get => Simulation.Bodies[Handle].Pose.Position;
-            set { var b = Simulation.Bodies[Handle]; b.Pose.Position = value; }
+            // Waking on pose/velocity writes is required: Bepu bodies sleep after
+            // resting (BodyActivityDescription 0.01), and writing a sleeping body's
+            // pose/velocity does NOT wake it, so it would never integrate again.
+            set { var b = Simulation.Bodies[Handle]; b.Pose.Position = value; b.Awake = true; }
         }
 
         public Quaternion Rotation
         {
             get => Simulation.Bodies[Handle].Pose.Orientation;
-            set { var b = Simulation.Bodies[Handle]; b.Pose.Orientation = value; }
+            set { var b = Simulation.Bodies[Handle]; b.Pose.Orientation = value; b.Awake = true; }
         }
 
         public Vector3 LinearVelocity
         {
             get => Simulation.Bodies[Handle].Velocity.Linear;
-            set { var b = Simulation.Bodies[Handle]; b.Velocity.Linear = value; }
+            set { var b = Simulation.Bodies[Handle]; b.Velocity.Linear = value; b.Awake = true; }
         }
 
         public void AddForce(Vector3 force)
         {
             var b = Simulation.Bodies[Handle];
             b.ApplyLinearImpulse(force);
+            // ApplyLinearImpulse explicitly does not wake the body; do it ourselves
+            // so impulses (e.g. jump) are honoured by a resting body.
+            b.Awake = true;
         }
 
         public void SetKinematic(bool kinematic)

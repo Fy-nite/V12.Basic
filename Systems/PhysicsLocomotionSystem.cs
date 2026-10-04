@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using V12.Basic.Components;
 using V12.Components;
@@ -16,6 +17,10 @@ namespace V12.Core.Systems
 
         private GameRoot _gameRoot;
         private IPhysicsBackend? _physics;
+
+        /// <summary>Per-element airborne latch used for the dynamic-body ground check.</summary>
+        private struct AirState { public bool Airborne; public bool Falling; }
+        private readonly Dictionary<long, AirState> _airStates = new();
 
         public PhysicsLocomotionSystem(GameRoot gameRoot)
         {
@@ -261,18 +266,21 @@ namespace V12.Core.Systems
                 {
                     // Dynamic: driven by Godot physics.
                     // V12 only syncs XZ — Godot handles Y (gravity + jump).
+                    bool jumped = false;
                     if (loco != null)
                     {
-                        var currentBodyVel = bodyComp.Body.LinearVelocity;
-
                         if (loco.Velocity.Y > 0.1f)
                         {
-                            // Jump: apply upward impulse (Godot's gravity takes over the arc)
+                            // Jump: apply upward impulse (gravity then bends the arc).
                             bodyComp.Body.AddForce(new Vector3(0, loco.Velocity.Y, 0));
                             loco.Velocity = new Vector3(loco.Velocity.X, 0, loco.Velocity.Z);
+                            jumped = true;
                         }
 
-                        // Sync XZ from V12; SyncToGodot preserves Godot's Y for dynamic bodies
+                        // Sync XZ from V12 while preserving the body's vertical velocity.
+                        // This MUST be read after the impulse above — a copy taken before
+                        // it would overwrite the jump velocity and cancel the jump.
+                        var currentBodyVel = bodyComp.Body.LinearVelocity;
                         bodyComp.Body.LinearVelocity = new Vector3(loco.Velocity.X, currentBodyVel.Y, loco.Velocity.Z);
                         
                         if (playerComp != null && (MathF.Abs(loco.Velocity.X) > 0.01f || MathF.Abs(loco.Velocity.Z) > 0.01f))
@@ -294,7 +302,26 @@ namespace V12.Core.Systems
                     {
                         var readVel = bodyComp.Body.LinearVelocity;
                         loco.Velocity = new Vector3(readVel.X, 0, readVel.Z);
-                        loco.IsGrounded = readVel.Y > -1.0f;
+
+                        // Grounded latch. Velocity alone can't tell "resting" apart from
+                        // "slow at the apex of a jump" (both have Y≈0), so the old
+                        // `readVel.Y > -1` test reported grounded mid-air and allowed
+                        // jump spam. Latch airborne on a jump or on clearly falling, and
+                        // only clear it once we have been falling and then come to rest.
+                        var state = _airStates.TryGetValue(element.Id, out var s) ? s : default;
+                        if (jumped) { state.Airborne = true; state.Falling = false; }
+                        if (state.Airborne)
+                        {
+                            if (readVel.Y < -0.5f) state.Falling = true;
+                            if (state.Falling && MathF.Abs(readVel.Y) < 0.2f) { state.Airborne = false; state.Falling = false; }
+                        }
+                        else if (readVel.Y < -0.5f)
+                        {
+                            state.Airborne = true;
+                            state.Falling = true;
+                        }
+                        _airStates[element.Id] = state;
+                        loco.IsGrounded = !state.Airborne;
                     }
                 }
             }
