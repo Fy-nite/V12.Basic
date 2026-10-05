@@ -1,5 +1,6 @@
 using System.Globalization;
 using Contract.Compiler.StandardLibrary;
+using ObjektRT.Core.Attributes;
 using V12.Core;
 
 namespace V12.Bindings

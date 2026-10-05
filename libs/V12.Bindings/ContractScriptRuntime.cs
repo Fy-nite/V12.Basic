@@ -1,6 +1,7 @@
 using Contract.Compiler.Diagnostics;
 using Contract.Runtime;
 using ObjectRT.Abstractions;
+using ObjektRT.Core.Model;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces;
 

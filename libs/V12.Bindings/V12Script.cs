@@ -1,4 +1,5 @@
 using Contract.Compiler.StandardLibrary;
+using ObjektRT.Core.Attributes;
 
 namespace V12.Bindings
 {

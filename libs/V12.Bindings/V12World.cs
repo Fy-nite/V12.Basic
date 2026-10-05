@@ -1,4 +1,5 @@
 using Contract.Compiler.StandardLibrary;
+using ObjektRT.Core.Attributes;
 using V12.Components;
 using V12.Core;
 using V12.Core.Core.Interfaces;
