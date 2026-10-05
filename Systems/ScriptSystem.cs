@@ -14,6 +14,7 @@ namespace V12.Core.Systems
         private readonly GameRoot _gameRoot;
         private readonly List<ScriptComponent> _scripts = new();
         private FileSystemWatcher _watcher;
+        private FileSystemWatcher _contractWatcher;
 
         public ScriptSystem(GameRoot gameRoot)
         {
@@ -42,6 +43,16 @@ namespace V12.Core.Systems
                             NotifyFilter = NotifyFilters.LastWrite
                         };
                         _watcher.Changed += (s, e) => ReloadScripts();
+
+                        // .ct element scripts live alongside the Lua ones. .ct
+                        // component *types* are watched by ContractComponentRegistry.
+                        _contractWatcher = new FileSystemWatcher(scriptsDir, "*.ct")
+                        {
+                            EnableRaisingEvents = true,
+                            IncludeSubdirectories = true,
+                            NotifyFilter = NotifyFilters.LastWrite
+                        };
+                        _contractWatcher.Changed += (s, e) => ReloadScripts();
                     }
                 }
             }
