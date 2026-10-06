@@ -195,11 +195,12 @@ namespace V12.Pak
         }
 
         /// <summary>
-        /// Compile each declared Contract (<c>.ct</c>) entrypoint into a
-        /// <see cref="ContractGamepack"/> and register it with the engine's
-        /// <see cref="GamePak.GamepackLoader"/>. The scripts' <c>Main</c> runs on
-        /// OnStart and an optional <c>OnUpdate</c> hook ticks per frame, driven by
-        /// the standard gamepak lifecycle. Scripts that fail to compile are
+        /// Wrap each declared script entrypoint in the gamepack that serves its
+        /// format — Contract (<c>.ct</c>) sources via <see cref="ContractGamepack"/>
+        /// (compiled on start), precompiled ObjektRT modules
+        /// (<c>.orbt</c>/<c>.oil</c>) via <see cref="ObjektRTGamepak"/> (loaded
+        /// as-is) — and register it with the engine's
+        /// <see cref="GamePak.GamepackLoader"/>. Scripts that fail to load are
         /// skipped with a warning (mirroring DLL loading behaviour).
         /// </summary>
         private static void LoadScripts(V12PakReader reader, V12PakManifest manifest, V12PakLoadResult result, GameRoot root)
@@ -210,23 +211,32 @@ namespace V12.Pak
                 if (path == null)
                 {
                     result.SkippedGamepaks++;
-                    Log.Warning("V12Pak: Contract script '{Script}' not found in archive, skipping", script);
+                    Log.Warning("V12Pak: script '{Script}' not found in archive, skipping", script);
                     continue;
                 }
 
                 try
                 {
-                    var gamepack = new ContractGamepack(path, Path.GetFileNameWithoutExtension(script));
+                    var gamepack = CreateGamepack(path, Path.GetFileNameWithoutExtension(script));
                     root.Gamepaks.Add(gamepack);
                     result.LoadedGamepaks++;
-                    Log.Information("V12Pak: registered Contract gamepak '{Name}' from '{Script}'", gamepack.Name, script);
+                    Log.Information("V12Pak: registered {Kind} gamepak '{Name}' from '{Script}'",
+                        gamepack is ObjektRTGamepak ? "ObjektRT" : "Contract", gamepack.Name, script);
                 }
                 catch (Exception ex)
                 {
                     result.SkippedGamepaks++;
-                    Log.Warning(ex, "V12Pak: Contract script '{Script}' failed to load, skipping", script);
+                    Log.Warning(ex, "V12Pak: script '{Script}' failed to load, skipping", script);
                 }
             }
         }
+
+        /// <summary>Creates the gamepack for one script entrypoint by format:
+        /// compiled ObjektRT modules (<c>.orbt</c>/<c>.oil</c>/<c>.oir</c>) vs
+        /// Contract <c>.ct</c> sources.</summary>
+        private static IV12Gamepack CreateGamepack(string path, string name)
+            => ObjektRTModuleLoader.IsCompiledScript(path)
+                ? new ObjektRTGamepak(path, name)
+                : new ContractGamepack(path, name);
     }
 }

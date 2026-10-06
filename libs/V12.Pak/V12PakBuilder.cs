@@ -98,10 +98,13 @@ namespace V12.Pak
             string scriptsDir = Path.Combine(inputDirectory, "scripts");
             if (Directory.Exists(scriptsDir))
             {
-                foreach (var file in Directory.EnumerateFiles(scriptsDir, "*.ct", SearchOption.AllDirectories))
-                {
-                    manifest.Scripts.Add(Path.GetRelativePath(inputDirectory, file).Replace('\\', '/'));
-                }
+                foreach (var pattern in new[] { "*.ct", "*.orbt", "*.oil" })
+                    foreach (var file in Directory.EnumerateFiles(scriptsDir, pattern, SearchOption.AllDirectories))
+                    {
+                        string relative = Path.GetRelativePath(inputDirectory, file).Replace('\\', '/');
+                        if (!manifest.Scripts.Contains(relative))
+                            manifest.Scripts.Add(relative);
+                    }
             }
 
             return manifest;

@@ -25,9 +25,10 @@ namespace V12.Pak
         public List<string> Paks { get; set; } = new();
 
         /// <summary>
-        /// Archive paths to Contract (<c>.ct</c>) gamepack entrypoints, compiled at
-        /// load time into <see cref="GamePak.IV12Gamepack"/> adapters. Each script
-        /// must define a <c>Main</c> function; an optional
+        /// Archive paths to script gamepack entrypoints. <c>.ct</c> Contract
+        /// sources are compiled at load time; <c>.orbt</c>/<c>.oil</c>
+        /// precompiled ObjektRT modules are loaded as-is. Each entrypoint must
+        /// define a <c>Main</c> function; an optional
         /// <c>OnUpdate(float deltaTime)</c> hook is invoked per frame.
         /// </summary>
         public List<string> Scripts { get; set; } = new();

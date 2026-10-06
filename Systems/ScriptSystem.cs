@@ -44,15 +44,26 @@ namespace V12.Core.Systems
                         };
                         _watcher.Changed += (s, e) => ReloadScripts();
 
-                        // .ct element scripts live alongside the Lua ones. .ct
+                        // Compiled scripts live alongside the Lua ones: .ct
+                        // element scripts (Contract compile-on-load) and
+                        // .orbt/.oil ObjektRT modules (load-as-module). Script
                         // component *types* are watched by ContractComponentRegistry.
-                        _contractWatcher = new FileSystemWatcher(scriptsDir, "*.ct")
+                        _contractWatcher = new FileSystemWatcher(scriptsDir, "*")
                         {
                             EnableRaisingEvents = true,
                             IncludeSubdirectories = true,
                             NotifyFilter = NotifyFilters.LastWrite
                         };
-                        _contractWatcher.Changed += (s, e) => ReloadScripts();
+                        _contractWatcher.Changed += (s, e) =>
+                        {
+                            string? name = e.Name;
+                            if (name == null) return;
+                            if (!name.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)
+                                && !name.EndsWith(".orbt", StringComparison.OrdinalIgnoreCase)
+                                && !name.EndsWith(".oil", StringComparison.OrdinalIgnoreCase))
+                                return;
+                            ReloadScripts();
+                        };
                     }
                 }
             }

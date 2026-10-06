@@ -129,28 +129,35 @@ namespace V12.Bindings
                 return results;
             }
 
-            ORBTModule? module;
-            DiagnosticBag diagnostics;
-            try
-            {
-                module = ContractCompiler.CompileFileToModule(path, out diagnostics, new[] { typeof(V12Log).Assembly }, V12LinkedAssemblies.All);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ContractComponents] Failed to compile {Path.GetFileName(path)}: {ex.Message}");
-                return results;
-            }
-
-            if (module == null)
-            {
-                Console.WriteLine($"[ContractComponents] Compile error in {Path.GetFileName(path)}:\n{string.Join("\n", diagnostics.Diagnostics)}");
-                return results;
-            }
-
             var runtime = new ContractRuntime();
             runtime.RegisterBindingAssembly(typeof(V12Log).Assembly);
             foreach (var asm in V12LinkedAssemblies.All)
                 runtime.RegisterLinkedAssembly(asm);
+
+            ORBTModule? module;
+            try
+            {
+                if (ObjektRTModuleLoader.IsCompiledScript(path))
+                {
+                    module = ObjektRTModuleLoader.Load(runtime, path);
+                }
+                else
+                {
+                    module = ContractCompiler.CompileFileToModule(path, out var diagnostics, new[] { typeof(V12Log).Assembly }, V12LinkedAssemblies.All);
+                    if (module == null)
+                    {
+                        Console.WriteLine($"[ContractComponents] Compile error in {Path.GetFileName(path)}:\n{string.Join("\n", diagnostics.Diagnostics)}");
+                        return results;
+                    }
+                    runtime.PrepareModule(module);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ContractComponents] Failed to load {Path.GetFileName(path)}: {ex.Message}");
+                return results;
+            }
+
             runtime.Inner.LoadModule(module);
 
             var reflector = runtime.Reflector;
@@ -180,15 +187,18 @@ namespace V12.Bindings
             return results;
         }
 
-        /// <summary>Compiles every <c>*.ct</c> under <paramref name="directory"/>. Returns the number of types registered.</summary>
+        /// <summary>Loads every script file under <paramref name="directory"/>
+        /// (<c>.ct</c> sources, <c>.orbt</c>/<c>.oil</c> compiled modules).
+        /// Returns the number of types registered.</summary>
         public int LoadDirectory(string directory, bool recursive = true)
         {
             if (!Directory.Exists(directory)) return 0;
 
+            var option = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
             int count = 0;
-            foreach (var file in Directory.EnumerateFiles(directory, "*.ct",
-                         recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
-                count += LoadFile(file).Count;
+            foreach (var pattern in new[] { "*.ct", "*.orbt", "*.oil" })
+                foreach (var file in Directory.EnumerateFiles(directory, pattern, option))
+                    count += LoadFile(file).Count;
             return count;
         }
 
@@ -203,15 +213,15 @@ namespace V12.Bindings
         }
 
         /// <summary>
-        /// Watches a directory for <c>.ct</c> edits and recompiles the registered
-        /// types. Reloading affects newly created instances; live instances keep
-        /// the module they were created with.
+        /// Watches a directory for script edits (<c>.ct</c>/<c>.orbt</c>/<c>.oil</c>)
+        /// and reloads the registered types. Reloading affects newly created
+        /// instances; live instances keep the module they were created with.
         /// </summary>
         public void Watch(string directory)
         {
             if (_watcher != null || !Directory.Exists(directory)) return;
 
-            _watcher = new FileSystemWatcher(directory, "*.ct")
+            _watcher = new FileSystemWatcher(directory, "*")
             {
                 EnableRaisingEvents = true,
                 IncludeSubdirectories = true,
@@ -220,7 +230,12 @@ namespace V12.Bindings
 
             _watcher.Changed += (_, e) =>
             {
-                Console.WriteLine($"[ContractComponents] Reloading after change: {e.Name}");
+                string? name = e.Name;
+                if (name == null) return;
+                if (!ObjektRTModuleLoader.IsCompiledScript(name) &&
+                    !name.EndsWith(".ct", StringComparison.OrdinalIgnoreCase))
+                    return;
+                Console.WriteLine($"[ContractComponents] Reloading after change: {name}");
                 ReloadAll();
             };
         }
