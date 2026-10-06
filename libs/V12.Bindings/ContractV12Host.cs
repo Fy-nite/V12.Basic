@@ -1,3 +1,4 @@
+using System.Reflection;
 using Contract.Runtime;
 using V12.Core;
 
@@ -13,11 +14,18 @@ namespace V12.Bindings
     /// spawned by the previous run are despawned first so the script can rebuild
     /// its world without duplicates. The runtime owns exactly one loaded module,
     /// so a host is created per script.
+    ///
+    /// Pass <c>linkedAssemblies</c> to reference real .NET assemblies directly
+    /// (assembly-link): every public type in them becomes callable from the
+    /// script by its CLR name, exactly as in C# — no <c>[ClassBinding]</c>
+    /// wrapper needed. Scripts can also self-describe with
+    /// <c>&lt;AssemblyRef("Name")&gt;</c>.
     /// </summary>
     public sealed class ContractV12Host
     {
         private readonly ContractRuntime _runtime;
         private readonly string _scriptPath;
+        private readonly IReadOnlyList<Assembly> _linkedAssemblies;
         private readonly HashSet<long> _baselineIds = new();
         private bool _hasLoaded;
 
@@ -28,18 +36,22 @@ namespace V12.Bindings
         public string ScriptPath => _scriptPath;
 
         /// <summary>Create a host for one script and load it immediately.</summary>
-        public static ContractV12Host Create(string scriptPath)
+        public static ContractV12Host Create(string scriptPath, IEnumerable<Assembly>? linkedAssemblies = null)
         {
-            var host = new ContractV12Host(scriptPath);
+            var host = new ContractV12Host(scriptPath, linkedAssemblies);
             host.Reload();
             return host;
         }
 
-        public ContractV12Host(string scriptPath)
+        public ContractV12Host(string scriptPath, IEnumerable<Assembly>? linkedAssemblies = null)
         {
             _scriptPath = scriptPath;
+            _linkedAssemblies = (linkedAssemblies ?? Enumerable.Empty<Assembly>())
+                .Where(a => a != null).Distinct().ToList();
             _runtime = new ContractRuntime();
             _runtime.RegisterBindingAssembly(typeof(V12Log).Assembly);
+            foreach (var asm in _linkedAssemblies)
+                _runtime.RegisterLinkedAssembly(asm);
         }
 
         /// <summary>
@@ -53,7 +65,8 @@ namespace V12.Bindings
             var module = ContractCompiler.CompileFileToModule(
                 _scriptPath,
                 out var diagnostics,
-                new[] { typeof(V12Log).Assembly });
+                new[] { typeof(V12Log).Assembly },
+                _linkedAssemblies);
 
             if (module == null)
             {

@@ -201,6 +201,26 @@ try
     world.AddElement(brokenElement);
     Check(true, "broken .ct compile logged without throwing");
 
+    // ── Assembly-link: call the real V12 engine API directly by CLR name ──
+    string linkPath = Path.Combine(Path.GetTempPath(), $"v12_link_{Guid.NewGuid():N}.ct");
+    File.WriteAllText(linkPath, """
+        Contract Program {
+            static fn Main() {
+                var t = new V12.Components.TransformComponent();
+                t.X = 1.5;
+                t.Y = 2.5;
+                t.Rotation = 90.0;
+                V12.Registry.RegisterDouble("link.transform.x", t.X);
+                V12.Log.Info("assembly-link set a real TransformComponent");
+            }
+        }
+        """);
+    var linkHost = ContractV12Host.Create(linkPath, V12LinkedAssemblies.All);
+    Check(linkHost != null, "assembly-link host created against the V12 engine");
+    var linkX = root.Registry.Get("link.transform.x")?.ServiceInstance;
+    Check(linkX is double lx && Math.Abs(lx - 1.5) < 1e-6, $"assembly-link called real V12 API (X={linkX})");
+    File.Delete(linkPath);
+
     File.Delete(scriptPath);
 }
 catch (Exception ex)

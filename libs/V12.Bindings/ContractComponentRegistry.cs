@@ -133,7 +133,7 @@ namespace V12.Bindings
             DiagnosticBag diagnostics;
             try
             {
-                module = ContractCompiler.CompileFileToModule(path, out diagnostics, new[] { typeof(V12Log).Assembly });
+                module = ContractCompiler.CompileFileToModule(path, out diagnostics, new[] { typeof(V12Log).Assembly }, V12LinkedAssemblies.All);
             }
             catch (Exception ex)
             {
@@ -149,6 +149,8 @@ namespace V12.Bindings
 
             var runtime = new ContractRuntime();
             runtime.RegisterBindingAssembly(typeof(V12Log).Assembly);
+            foreach (var asm in V12LinkedAssemblies.All)
+                runtime.RegisterLinkedAssembly(asm);
             runtime.Inner.LoadModule(module);
 
             var reflector = runtime.Reflector;

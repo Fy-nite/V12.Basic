@@ -24,7 +24,7 @@ namespace V12.Bindings
 
             var registry = new ScriptRuntimeRegistry()
                 .Register(() => new MoonSharpScriptRuntime())
-                .Register(() => new ContractScriptRuntime());
+                .Register(() => new ContractScriptRuntime(V12LinkedAssemblies.All));
             gameRoot.Registry.Register("ScriptRuntimeRegistry", registry);
             return registry;
         }

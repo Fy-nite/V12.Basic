@@ -47,7 +47,7 @@ namespace V12.Bindings
         /// </summary>
         public void OnStart()
         {
-            var host = ContractV12Host.Create(_scriptPath);
+            var host = ContractV12Host.Create(_scriptPath, V12LinkedAssemblies.All);
             _host = host;
 
             var root = GameRoot.Instance;

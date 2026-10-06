@@ -1,3 +1,4 @@
+using System.Reflection;
 using Contract.Compiler.Diagnostics;
 using Contract.Runtime;
 using ObjectRT.Abstractions;
@@ -22,18 +23,27 @@ namespace V12.Bindings
     /// The owning element is exposed to scripts as <c>V12.Script.Owner()</c>;
     /// global values set via <see cref="SetGlobal"/> are held engine-side (Contract
     /// has no dynamic global scope) and are retrievable with <see cref="GetGlobal"/>.
+    ///
+    /// Pass <c>linkedAssemblies</c> to reference real .NET assemblies directly
+    /// (assembly-link); scripts may also self-describe with
+    /// <c>&lt;AssemblyRef("Name")&gt;</c>.
     /// </summary>
     public sealed class ContractScriptRuntime : IScriptRuntime, IScriptOwnerAwareRuntime
     {
         private readonly ContractRuntime _runtime;
+        private readonly IReadOnlyList<Assembly> _linkedAssemblies;
         private readonly Dictionary<string, object> _globals = new();
         private IWorldElement? _owner;
         private bool _loaded;
 
-        public ContractScriptRuntime()
+        public ContractScriptRuntime(IEnumerable<Assembly>? linkedAssemblies = null)
         {
+            _linkedAssemblies = (linkedAssemblies ?? Enumerable.Empty<Assembly>())
+                .Where(a => a != null).Distinct().ToList();
             _runtime = new ContractRuntime();
             _runtime.RegisterBindingAssembly(typeof(V12Log).Assembly);
+            foreach (var asm in _linkedAssemblies)
+                _runtime.RegisterLinkedAssembly(asm);
         }
 
         public bool SupportsHotReload => true;
@@ -58,9 +68,9 @@ namespace V12.Bindings
             ORBTModule? module;
             DiagnosticBag diagnostics;
             if (!string.IsNullOrEmpty(scriptName) && File.Exists(scriptName))
-                module = ContractCompiler.CompileFileToModule(scriptName, out diagnostics, new[] { typeof(V12Log).Assembly });
+                module = ContractCompiler.CompileFileToModule(scriptName, out diagnostics, new[] { typeof(V12Log).Assembly }, _linkedAssemblies);
             else
-                module = ContractCompiler.CompileSourceToModule(source, null, out diagnostics, new[] { typeof(V12Log).Assembly });
+                module = ContractCompiler.CompileSourceToModule(source, null, out diagnostics, new[] { typeof(V12Log).Assembly }, _linkedAssemblies);
 
             if (module == null)
             {
