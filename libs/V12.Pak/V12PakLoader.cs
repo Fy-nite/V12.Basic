@@ -192,6 +192,23 @@ namespace V12.Pak
             root.Gamepaks.LoadFromDirectory(paksDir);
             result.LoadedGamepaks = root.Gamepaks.Gamepaks.Count - before;
             Log.Information("V12Pak: loaded {Count} gamepak(s)", result.LoadedGamepaks);
+
+            // Link every pak dll into the script runtimes so the game's .ct/.orbt
+            // entrypoints can call the pak's own C# code by CLR name (and
+            // <AssemblyRef(Path: ...)> resolves at runtime). LoadFrom reuses the
+            // gamepack loader's assembly context; V12LinkedAssemblies de-dups.
+            // Runs before LoadScripts, so compile-time linking sees these too.
+            foreach (var dll in Directory.GetFiles(paksDir, "*.dll"))
+            {
+                try
+                {
+                    V12LinkedAssemblies.Add(System.Reflection.Assembly.LoadFrom(dll));
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "V12Pak: failed to link pak dll '{Dll}' for scripts, skipping", Path.GetFileName(dll));
+                }
+            }
         }
 
         /// <summary>

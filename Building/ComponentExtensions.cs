@@ -26,6 +26,26 @@ namespace V12.Basic.Building
             return created;
         }
 
+        /// <summary>Returns the element's <see cref="TransformComponent"/>, or null.
+        /// Non-generic so Contract scripts can call it across assembly-link
+        /// (generic methods don't cross the v1 boundary).</summary>
+        public static TransformComponent? GetTransform(this IWorldElement element)
+            => element.GetComponent<TransformComponent>();
+
+        /// <summary>Returns the element's <see cref="TransformComponent"/> or adds a new one.
+        /// Non-generic so Contract scripts can call it across assembly-link:
+        /// <c>this.Owner.GetOrAddTransform().RY = ...</c>.</summary>
+        public static TransformComponent GetOrAddTransform(this IWorldElement element)
+            => element.GetOrAdd<TransformComponent>();
+
+        /// <summary>Returns the element's <see cref="MeshComponent"/>, or null (non-generic, script-callable).</summary>
+        public static MeshComponent? GetMesh(this IWorldElement element)
+            => element.GetComponent<MeshComponent>();
+
+        /// <summary>Returns the element's <see cref="ColliderComponent"/>, or null (non-generic, script-callable).</summary>
+        public static ColliderComponent? GetCollider(this IWorldElement element)
+            => element.GetComponent<ColliderComponent>();
+
         /// <summary>Adds a <see cref="MeshComponent"/> and its matching <see cref="MeshRenderer"/>.</summary>
         public static MeshComponent AddMesh(this IWorldElement element, MeshShape shape, float width = 1f, float height = 1f, float depth = 1f)
         {

@@ -28,11 +28,35 @@ namespace V12.Bindings
         /// <summary>The <c>.ct</c> component type name.</summary>
         public string TypeName => _entry.TypeName;
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Component name, synced with the VM instance's <c>Name</c> field
+        /// (materialized from a <c>ComponentBase</c> base): reads the script-set
+        /// value first, falls back to the Contract type name; the setter writes
+        /// the VM field so <c>this.Name = "..."</c> in scripts is visible here.
+        /// </summary>
         public override string? Name
         {
-            get => _entry.TypeName;
-            set { /* identity is the Contract type name */ }
+            get
+            {
+                var fromVm = GetField("Name") as string;
+                return string.IsNullOrEmpty(fromVm) ? _entry.TypeName : fromVm;
+            }
+            set => SetField("Name", value);
+        }
+
+        /// <summary>
+        /// Component active flag, synced with the VM instance's <c>Active</c>
+        /// field (hides the non-virtual base storage; the setter mirrors into
+        /// both so base-typed engine reads stay consistent).
+        /// </summary>
+        public new bool Active
+        {
+            get => GetField("Active") is not bool b || b;
+            set
+            {
+                SetField("Active", value);
+                base.Active = value;
+            }
         }
 
         /// <summary>The VM object handle for this instance (null until allocated).</summary>
@@ -44,6 +68,14 @@ namespace V12.Bindings
             _handle ??= _entry.Allocate();
             if (_handle == null) return;
 
+            // Seed the materialized ComponentBase state so scripts can use
+            // engine-style member chains: this.Name / this.Active / this.Owner
+            // (Owner holds the element object itself, not an id).
+            SetField("Name", _entry.TypeName);
+            SetField("Active", true);
+            SetField("Owner", worldElement);
+            SetField("EntityId", worldElement.Id);
+
             V12Script.SetOwner(worldElement.Id);
             _entry.Invoke(_entry.OnAttach, _handle, worldElement.Id);
         }
@@ -51,6 +83,7 @@ namespace V12.Bindings
         public override void Update(float deltaTime)
         {
             if (_handle == null || _entry.OnUpdate == null) return;
+            if (!Active) return;   // script-set Active gates the per-frame hook
 
             V12Script.SetOwner(Owner?.Id ?? 0);
             _entry.Invoke(_entry.OnUpdate, _handle, deltaTime);
