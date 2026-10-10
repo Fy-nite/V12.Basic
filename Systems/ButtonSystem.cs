@@ -83,7 +83,16 @@ namespace V12.Core.Systems
             {
                 button.Pressed = true;
                 Console.WriteLine($"[Button] \"{button.Label}\" pressed");
-                button.OnPressed?.Invoke();
+                if (button.OnPressed == null)
+                    Console.WriteLine($"[Button] \"{button.Label}\" has NO callback (nulled?)");
+                try
+                {
+                    button.OnPressed?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Button] \"{button.Label}\" callback threw: {ex.GetType().Name}: {ex.Message}");
+                }
                 RpcDispatcher.CallButtonPressed(_gameRoot, hitElement);
             }
             else if (!_interactDown)
