@@ -1,6 +1,7 @@
 using System.Reflection;
 using Contract.Runtime;
 using V12.Core;
+using V12.Core.Input;
 
 namespace V12.Bindings
 {
@@ -9,6 +10,11 @@ namespace V12.Bindings
     /// source with the V12.* bindings registered, loads it into a
     /// <see cref="ContractRuntime"/>, runs the module's <c>Main</c>, and exposes
     /// per-frame hook invocation (<c>OnUpdate(float deltaTime)</c>) plus reload.
+    ///
+    /// The host also implements <see cref="IInputHandler"/> so a gamepack can
+    /// register it with the engine's <see cref="InputService"/>; raw input
+    /// edges are forwarded to the script's optional <c>OnInputEvent(InputEvent)</c>
+    /// hook, exactly like <c>OnUpdate</c> is driven by <see cref="ScriptTickService"/>.
     ///
     /// Reload recompiles the source and re-runs <c>Main</c>. Any root elements
     /// spawned by the previous run are despawned first so the script can rebuild
@@ -21,7 +27,7 @@ namespace V12.Bindings
     /// wrapper needed. Scripts can also self-describe with
     /// <c>&lt;AssemblyRef("Name")&gt;</c>.
     /// </summary>
-    public sealed class ContractV12Host
+    public sealed class ContractV12Host : IInputHandler
     {
         private readonly ContractRuntime _runtime;
         private readonly string _scriptPath;
@@ -105,6 +111,23 @@ namespace V12.Bindings
         /// <summary>Invoke any module method by qualified name (e.g. "Program.Hello").</summary>
         public object? Invoke(string qualifiedName, params object?[] args)
             => _runtime.CallMethod<object?>(qualifiedName, args);
+
+        /// <summary>
+        /// <see cref="IInputHandler"/> entry point. Forwards a raw input edge to
+        /// the script's optional <c>OnInputEvent(InputEvent)</c> hook. No-ops when
+        /// the script declares no such hook, and swallows script errors so a
+        /// broken handler can't take down the engine's input dispatch.
+        /// </summary>
+        public void OnInputEvent(InputEvent evt)
+        {
+            var hook = FindHook("OnInputEvent");
+            if (hook == null) return;
+            try { _runtime.CallMethod<object?>(hook, evt); }
+            catch (Exception ex)
+            {
+                GameRoot.Log.Error(ex, "Script gamepak OnInputEvent failed");
+            }
+        }
 
         private string? FindHook(string methodName)
         {

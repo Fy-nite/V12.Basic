@@ -1,4 +1,5 @@
 using V12.Core;
+using V12.Core.Input;
 
 namespace V12.Bindings
 {
@@ -44,6 +45,9 @@ namespace V12.Bindings
         /// <summary>
         /// Phase 2. Compile the script, run its <c>Main</c>, and register a
         /// per-frame tick service that drives <c>OnUpdate</c> when present.
+        /// The host is also registered with the engine's
+        /// <see cref="InputService"/> so the script's optional
+        /// <c>OnInputEvent(InputEvent)</c> hook receives raw input edges.
         /// Compile failures throw <see cref="ContractCompileException"/>.
         /// </summary>
         public void OnStart()
@@ -55,6 +59,7 @@ namespace V12.Bindings
             if (root == null) return;
 
             root.Registry.RegisterOrReplace($"ContractTick:{_gamepackName}", new ScriptTickService(_gamepackName, dt => host.InvokeUpdate(dt)));
+            root.Registry.Get<InputService>()?.RegisterHandler(host);
             GameRoot.Log.Information("Contract gamepak '{Name}' started ({Path})", Name, _scriptPath);
         }
     }
