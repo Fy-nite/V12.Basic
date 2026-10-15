@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Serilog" Version="4.4.0" />
     <ProjectReference Include="libs/V12/V12.csproj" />
     <Compile Include="..\..\..\..\libs\V12.Basic\Systems\NetworkHandler.cs" Link="Systems\NetworkHandler.cs" />
     <Compile Include="..\..\..\..\libs\V12.Basic\Systems\RemotePlayerManager.cs" Link="Systems\RemotePlayerManager.cs" />

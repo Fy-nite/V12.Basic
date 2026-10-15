@@ -116,6 +116,7 @@ namespace V12.Pak
             {
                 string relative = Path.GetRelativePath(inputDirectory, file).Replace('\\', '/');
                 if (string.Equals(relative, "manifest.json", StringComparison.OrdinalIgnoreCase)) continue;
+                if (relative.EndsWith(".v12pak", StringComparison.OrdinalIgnoreCase)) continue;
                 writer.AddFile(relative, file);
             }
         }
