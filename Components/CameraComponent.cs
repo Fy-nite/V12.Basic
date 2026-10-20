@@ -8,8 +8,6 @@ using V12.Components;
 
 namespace V12.Basic.Components
 {
-    public enum CameraProjection { Perspective, Orthographic }
-
     public class CameraComponent : ComponentBase, ICameraRenderable
     {
         private CameraProjection _projection  = CameraProjection.Perspective;
@@ -58,10 +56,12 @@ namespace V12.Basic.Components
         }
 
         public float FieldOfView => Fov;
-        public float AspectRatio => 16f / 9f;
+        public float AspectRatio => 0f; // 0 = use viewport aspect (Unity-style auto-aspect)
         float ICameraRenderable.NearClip => NearClip;
         float ICameraRenderable.FarClip => FarClip;
         bool ICameraRenderable.IsCurrent => IsCurrent;
+        CameraProjection ICameraRenderable.Projection => Projection;
+        float ICameraRenderable.OrthoSize => OrthoSize;
 
         public RenderType RenderType => RenderType.Custom;
 
