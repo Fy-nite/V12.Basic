@@ -1,0 +1,12 @@
+<Project>
+
+  <!--
+    Path to the V12 engine this repository builds against. Only a DEFAULT:
+    override it (e.g. -p:V12EngineProject=..\..\V12\V12.csproj) to build against
+    a different checkout or a versioned copy of the engine.
+  -->
+  <PropertyGroup>
+    <V12EngineProject Condition="'$(V12EngineProject)' == ''">$(MSBuildThisFileDirectory)libs/V12/V12.csproj</V12EngineProject>
+  </PropertyGroup>
+
+</Project>
