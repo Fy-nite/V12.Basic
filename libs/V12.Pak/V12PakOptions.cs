@@ -20,6 +20,27 @@ namespace V12.Pak
         public bool LoadContractScripts { get; set; } = false;
 
         /// <summary>
+        /// Whether to compile and load C# component sources (<c>.cs</c>) from the
+        /// pak. Default: false. Like <see cref="LoadContractScripts"/> this runs
+        /// arbitrary code, so it sits in the same trust tier as
+        /// <see cref="LoadDlls"/>.
+        /// </summary>
+        public bool LoadCSharpScripts { get; set; } = false;
+
+        /// <summary>
+        /// Whether to load the paks listed in the manifest's
+        /// <see cref="V12PakManifest.Dependencies"/> before this pak. Default: true.
+        /// </summary>
+        public bool LoadDependencies { get; set; } = true;
+
+        /// <summary>
+        /// Extra directories (or explicit file paths) searched for dependency
+        /// paks, after the depending pak's own directory and before the working
+        /// directory.
+        /// </summary>
+        public List<string> DependencySearchPaths { get; set; } = new();
+
+        /// <summary>
         /// File extensions allowed to be imported as assets.
         /// Null = allow all extensions. Empty set = block all assets.
         /// Checked against the archive path of each asset in the manifest.

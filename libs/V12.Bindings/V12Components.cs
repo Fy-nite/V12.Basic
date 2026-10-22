@@ -160,6 +160,27 @@ namespace V12.Bindings
         public static string ContractComponentTypes()
             => ContractComponentRegistry.FromGameRoot() is { } r ? string.Join(",", r.TypeNames) : "";
 
+        // ── C# (.cs) components ───────────────────────────────────────
+
+        /// <summary>
+        /// Attach a component type compiled from C# source at runtime
+        /// (e.g. "SpinComponent"). Types come from a project's <c>scripts</c>
+        /// folder or a <c>.v12pak</c> that ships C# sources.
+        /// </summary>
+        [MethodBinding]
+        public static bool AddCSharpComponent(long elementId, string typeName)
+        {
+            var element = V12World.FindElement(elementId);
+            if (element == null || string.IsNullOrEmpty(typeName)) return false;
+            var registry = CSharpComponentRegistry.FromGameRoot();
+            return registry != null && registry.Attach(element, typeName);
+        }
+
+        /// <summary>Comma-separated list of every registered C# component type.</summary>
+        [MethodBinding]
+        public static string CSharpComponentTypes()
+            => CSharpComponentRegistry.FromGameRoot() is { } r ? string.Join(",", r.TypeNames) : "";
+
         /// <summary>Attach a ScriptComponent that loads a .ct/.lua file (path relative to the asset resolver).</summary>
         [MethodBinding]
         public static bool AttachScript(long elementId, string source)
@@ -174,7 +195,9 @@ namespace V12.Bindings
 
         /// <summary>
         /// Attach (or ensure) a component by type name: built-ins ("Transform",
-        /// "Mesh", "Collider", "Material", "Script") or a registered .ct type.
+        /// "Mesh", "Collider", "Material", "Script"), a registered .ct type, or a
+        /// component compiled from C# source (including one shipped by another
+        /// .v12pak).
         /// </summary>
         [MethodBinding]
         public static bool AddComponent(long elementId, string typeName)
@@ -193,8 +216,11 @@ namespace V12.Bindings
                         element.AddComponent(new ScriptComponent());
                     return true;
                 default:
-                    var registry = ContractComponentRegistry.FromGameRoot();
-                    return registry != null && registry.Attach(element, typeName);
+                    var contract = ContractComponentRegistry.FromGameRoot();
+                    if (contract != null && contract.Attach(element, typeName)) return true;
+
+                    var csharp = CSharpComponentRegistry.FromGameRoot();
+                    return csharp != null && csharp.Attach(element, typeName);
             }
         }
 

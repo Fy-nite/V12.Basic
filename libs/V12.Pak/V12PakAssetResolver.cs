@@ -30,6 +30,13 @@ namespace V12.Pak
             => _mounts.Remove(mountPoint);
 
         /// <summary>
+        /// Resolver consulted when this pak has no match. Set to the previously
+        /// active resolver when a pak is loaded, so a pak can read assets from the
+        /// dependency paks loaded before it.
+        /// </summary>
+        public IAssetResolver? Fallback { get; set; }
+
+        /// <summary>
         /// Resolve a <c>v12://</c> URI to a physical file path. Returns the URI
         /// unchanged when nothing matches.
         /// </summary>
@@ -51,7 +58,7 @@ namespace V12.Pak
                 if (File.Exists(candidate)) return candidate;
             }
 
-            return uri;
+            return Fallback?.Resolve(uri) ?? uri;
         }
 
         /// <summary>

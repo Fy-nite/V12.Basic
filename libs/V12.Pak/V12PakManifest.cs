@@ -32,6 +32,29 @@ namespace V12.Pak
         /// <c>OnUpdate(float deltaTime)</c> hook is invoked per frame.
         /// </summary>
         public List<string> Scripts { get; set; } = new();
+
+        /// <summary>
+        /// Archive paths to C# component sources (<c>.cs</c>) compiled at load
+        /// time. Every <c>IComponent</c> type they declare is registered so this
+        /// pak's worlds and Contract scripts, and other paks, can attach it.
+        /// When empty, every <c>.cs</c> under the archive's <c>scripts/</c>
+        /// folder is compiled instead.
+        /// </summary>
+        public List<string> CSharpScripts { get; set; } = new();
+
+        /// <summary>
+        /// Other <c>.v12pak</c> archives this pak depends on. Values are file
+        /// names, relative paths or absolute paths; they are resolved against
+        /// the pak's own directory first, then
+        /// <see cref="V12PakOptions.DependencySearchPaths"/>, then the working
+        /// directory.
+        /// <para>
+        /// Dependencies are loaded before this pak, so their DLLs and compiled
+        /// C# component types are available to this pak's worlds, C# sources and
+        /// Contract scripts.
+        /// </para>
+        /// </summary>
+        public List<string> Dependencies { get; set; } = new();
     }
 
     public sealed class V12PakWorldEntry
