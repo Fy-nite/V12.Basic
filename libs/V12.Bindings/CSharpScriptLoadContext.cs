@@ -50,14 +50,16 @@ namespace V12.Bindings
         /// </summary>
         private static Assembly? FindShared(AssemblyName assemblyName)
         {
-            foreach (var assembly in Default.Assemblies)
+            // Prefer the assemblies the host linked explicitly (V12, V12.Basic,
+            // pak DLLs). They may live in Godot's PluginLoadContext rather than
+            // the default context, and binding a script to a *second* copy of
+            // V12 would break IComponent/ComponentBase type identity.
+            foreach (var assembly in V12LinkedAssemblies.All)
             {
                 if (Matches(assembly, assemblyName)) return assembly;
             }
 
-            // Pak DLLs and other runtime-compiled script sets are linked here;
-            // they may live in a different collectible context than ours.
-            foreach (var assembly in V12LinkedAssemblies.All)
+            foreach (var assembly in Default.Assemblies)
             {
                 if (Matches(assembly, assemblyName)) return assembly;
             }
