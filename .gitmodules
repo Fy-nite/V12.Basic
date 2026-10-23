@@ -4,3 +4,6 @@
 [submodule "libs/Contract"]
 	path = libs/Contract
 	url = https://github.com/Fy-nite/Contract
+[submodule "libs/V12.Pak"]
+	path = libs/V12.Pak
+	url = https://github.com/fy-nite/V12.Pak
