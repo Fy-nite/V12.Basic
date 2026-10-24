@@ -10,6 +10,7 @@ namespace V12.Basic.Components
     /// Systems can read CurrentHealth to determine alive/dead state.
     /// IsInvincible prevents damage from being applied.
     /// </summary>
+    [ComponentEntry("GAMEPLAY", "Health", SortOrder = 8, Icon = "heart")]
     public class HealthComponent : ComponentBase
     {
         private float _currentHealth;

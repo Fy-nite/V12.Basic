@@ -8,6 +8,7 @@ using V12.Core.Networking;
 
 namespace V12.Basic.Components
 {
+    [ComponentEntry("PHYSICS", "Physics Body", SortOrder = 3, Icon = "atom")]
     public class PhysicsBodyComponent : ComponentBase
     {
         /// <summary>

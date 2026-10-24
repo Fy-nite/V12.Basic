@@ -10,6 +10,7 @@ namespace V12.Basic.Components
     /// This is a pure-data component; a Godot controller reads these values
     /// and applies them on the main thread.
     /// </summary>
+    [ComponentEntry("GAMEPLAY", "Desktop Player", SortOrder = 10, Icon = "desktop")]
     public class DesktopPlayerComponent : ComponentBase, IPlayerControlComponent
     {
         private bool  _isLocalControlled = true;

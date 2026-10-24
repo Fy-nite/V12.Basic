@@ -47,17 +47,35 @@ namespace V12.Bindings
         /// <summary>
         /// Looks for an assembly of this identity that the host already loaded.
         /// Returning null lets the runtime fall back to the default context.
+        /// <para>
+        /// The linked engine assemblies are checked FIRST. Under a host that
+        /// loads the game into its own context (Godot's PluginLoadContext, a
+        /// test runner, ...) the default context can hold a second copy of
+        /// <c>V12.dll</c>; resolving against that copy gives the script a
+        /// different <c>IComponent</c> identity than the live engine, so every
+        /// type fails the registry's assignability check.
+        /// </para>
         /// </summary>
         private static Assembly? FindShared(AssemblyName assemblyName)
         {
-            foreach (var assembly in Default.Assemblies)
+            // The assemblies the host is actually running against.
+            foreach (var assembly in V12LinkedAssemblies.All)
             {
                 if (Matches(assembly, assemblyName)) return assembly;
             }
 
-            // Pak DLLs and other runtime-compiled script sets are linked here;
-            // they may live in a different collectible context than ours.
-            foreach (var assembly in V12LinkedAssemblies.All)
+            // Anything else already loaded, wherever it lives. Skip collectible
+            // script sets: an older generation with the same name must not be
+            // handed to the new one (linked assemblies were checked above).
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (AssemblyLoadContext.GetLoadContext(assembly)?.IsCollectible == true) continue;
+                if (Matches(assembly, assemblyName)) return assembly;
+            }
+
+            // Framework assemblies that are only visible through the default
+            // context (System.Runtime and friends).
+            foreach (var assembly in Default.Assemblies)
             {
                 if (Matches(assembly, assemblyName)) return assembly;
             }

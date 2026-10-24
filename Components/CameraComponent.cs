@@ -8,7 +8,7 @@ using V12.Components;
 
 namespace V12.Basic.Components
 {
-    [ComponentEntry("RENDER", "Camera", SingleInstance = true, SortOrder = 5)]
+    [ComponentEntry("RENDER", "Camera", SingleInstance = true, SortOrder = 4, Icon = "camera")]
     public class CameraComponent : ComponentBase, ICameraRenderable
     {
         private CameraProjection _projection  = CameraProjection.Perspective;

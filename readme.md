@@ -95,6 +95,11 @@ world.Bind()
 
 It is world-agnostic, so it binds to worlds loaded from a `.v12pak` (via V12.Pak's `GameRoot.LoadPak`) the same way.
 
+## Documentation
+
+- `libs/V12/Docs/WorldML.tex`: WorldML format reference.
+- `libs/V12/Docs/WORLDML_BINDINGS.md`: WorldML parser/serializer pipeline and the property, scene, and script binding layers.
+
 ## Dependencies
 
 - Project reference: `V12.Core` (from `libs/V12/`)

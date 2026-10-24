@@ -11,6 +11,7 @@ namespace V12.Basic.Components
     /// this component is purely data that describes how the body should behave.
     /// IsKinematic = true → moved by code, not by forces.
     /// </summary>
+    [ComponentEntry("PHYSICS", "Rigid Body", SortOrder = 4, Icon = "gears")]
     public class RigidBodyComponent : ComponentBase
     {
         private float _mass           = 1f;

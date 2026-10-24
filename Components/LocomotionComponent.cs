@@ -7,6 +7,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Basic.Components
 {
+    [ComponentEntry("GAMEPLAY", "Locomotion", SortOrder = 7, Icon = "person-running")]
     public class LocomotionComponent : ComponentBase
     {
         public override string Name => "Locomotion";

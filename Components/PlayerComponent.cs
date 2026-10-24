@@ -9,6 +9,7 @@ using V12.Core.Interfaces.Renderer;
 
 namespace V12.Basic.Components
 {
+    [ComponentEntry("GAMEPLAY", "Player", SortOrder = 6, Icon = "person")]
     public class PlayerComponent : ComponentBase, IPlayerControlComponent
     {
         private bool         _isLocalControlled    = true;

@@ -306,24 +306,35 @@ namespace V12.Bindings
             }
             catch { }
             try { Add(Assembly.Load("netstandard")); } catch { }
-            // Last resort: try to load common assembly names and from base directory
+
+            // Last resort: reference V12 assemblies that are on disk but not
+            // loaded yet. Add them as METADATA only. Assembly.LoadFrom would
+            // load a second copy into the default context, and the script
+            // assembly would then resolve ComponentBase/IComponent against that
+            // copy instead of the live engine's, so the registry sees no
+            // IComponent types at all.
+            void AddFile(string? path)
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+
+                string full = Path.GetFullPath(path);
+                if (!seen.Add(full)) return;
+
+                try { byLocation[full] = MetadataReference.CreateFromFile(full); }
+                catch { /* unreadable: skip it rather than fail the whole compile */ }
+            }
+
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             string[] names = { "V12", "V12.Basic", "V12.Bindings", "V12.Pak", "V12.Runtime", "V12Engine", "V12Studio", "V12StudioPak" };
             foreach (var n in names)
-            {
-                try { Add(Assembly.Load(n)); } catch { }
-                try { Add(Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, n + ".dll"))); } catch { }
-            }
+                AddFile(Path.Combine(baseDirectory, n + ".dll"));
+
             try
             {
-                foreach (var dll in Directory.GetFiles(AppDomain.CurrentDomain.BaseDirectory, "*.dll"))
+                foreach (var dll in Directory.GetFiles(baseDirectory, "*.dll"))
                 {
-                    try
-                    {
-                        string an = Path.GetFileNameWithoutExtension(dll);
-                        if (an.StartsWith("V12", StringComparison.OrdinalIgnoreCase))
-                            Add(Assembly.LoadFrom(dll));
-                    }
-                    catch { }
+                    if (Path.GetFileNameWithoutExtension(dll).StartsWith("V12", StringComparison.OrdinalIgnoreCase))
+                        AddFile(dll);
                 }
             }
             catch { }

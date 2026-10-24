@@ -142,15 +142,34 @@ namespace V12.Bindings
             }
 
             int count = 0;
+            int implementers = 0;
             foreach (var type in types)
             {
                 if (type == null) continue;
+                if (!typeof(IComponent).IsAssignableFrom(type)) continue;
+                implementers++;
                 if (!RegisterType(type, sourcePath ?? assembly.GetName().Name)) continue;
                 count++;
             }
 
             if (count == 0)
-                GameRoot.Log.Warning("[CSharpComponents] No IComponent types found in {Assembly}", assembly.GetName().Name);
+            {
+                if (implementers == 0)
+                {
+                    GameRoot.Log.Warning(
+                        "[CSharpComponents] No IComponent types found in {Assembly}. The live IComponent lives in " +
+                        "'{RuntimeAssembly}'; if the sources do derive from ComponentBase, they were compiled against " +
+                        "a different copy of V12 and kept a separate type identity.",
+                        assembly.GetName().Name, typeof(IComponent).Assembly.GetName().Name);
+                }
+                else
+                {
+                    GameRoot.Log.Warning(
+                        "[CSharpComponents] {Assembly} has {Count} IComponent type(s), but none are concrete with a " +
+                        "public parameterless constructor.",
+                        assembly.GetName().Name, implementers);
+                }
+            }
 
             return count;
         }

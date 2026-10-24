@@ -5,6 +5,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Basic.Components
 {
+    [ComponentEntry("GAMEPLAY", "VR Player", SortOrder = 9, Icon = "vr-cardboard")]
     public class VRPlayerComponent : ComponentBase, IPlayerControlComponent
     {
         private bool  _isLocalControlled    = true;
