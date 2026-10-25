@@ -7,7 +7,7 @@ namespace V12.Basic.Components
 {
     /// <summary>
     /// Settings for a desktop (keyboard+mouse) player attached to an element.
-    /// This is a pure-data component; a Godot controller reads these values
+    /// This is a pure-data component; a partisipating controller reads these values
     /// and applies them on the main thread.
     /// </summary>
     [ComponentEntry("GAMEPLAY", "Desktop Player", SortOrder = 10, Icon = "desktop")]
