@@ -39,6 +39,62 @@ namespace V12.Basic.Scene
             return root.LoadSceneFromXml(File.ReadAllText(path), worldName ?? Path.GetFileNameWithoutExtension(path), select);
         }
 
+        /// <summary>
+        /// Mount a loose content directory as the default <c>v12://</c> root.
+        /// This is the loose-content counterpart to a pak's asset map: after
+        /// this call <c>v12://Textures/Grass.png</c> resolves to
+        /// <c>{contentRoot}/Textures/Grass.png</c>.
+        /// </summary>
+        public static V12AssetResolver MountContent(this GameRoot root, string contentRoot, string mountPoint = "content")
+        {
+            if (root == null) throw new ArgumentNullException(nameof(root));
+            if (string.IsNullOrWhiteSpace(contentRoot))
+                throw new ArgumentException("Content root is required.", nameof(contentRoot));
+
+            string fullRoot = Path.GetFullPath(contentRoot);
+            if (!Directory.Exists(fullRoot))
+                throw new DirectoryNotFoundException($"Content root not found: {fullRoot}");
+
+            if (root.Registry.Get<IAssetResolver>() is V12AssetResolver existing)
+            {
+                existing.Mount(mountPoint, fullRoot);
+                existing.SetDefaultMount(mountPoint);
+                return existing;
+            }
+
+            var resolver = new V12AssetResolver();
+            resolver.Mount(mountPoint, fullRoot);
+            root.Registry.RegisterOrReplace("AssetResolver", resolver);
+            return resolver;
+        }
+
+        /// <summary>
+        /// Load a scene from a loose content directory and make that directory
+        /// the world's asset mount. <paramref name="relativeScenePath"/> is
+        /// relative to <paramref name="contentRoot"/> (e.g. "Scenes/Main.worldml").
+        /// </summary>
+        public static World LoadSceneFromContent(
+            this GameRoot root,
+            string contentRoot,
+            string relativeScenePath,
+            string? worldName = null,
+            bool select = true)
+        {
+            if (root == null) throw new ArgumentNullException(nameof(root));
+            if (string.IsNullOrWhiteSpace(relativeScenePath))
+                throw new ArgumentException("Scene path is required.", nameof(relativeScenePath));
+
+            var resolver = root.MountContent(contentRoot);
+            string path = Path.Combine(
+                Path.GetFullPath(contentRoot),
+                relativeScenePath.Replace('/', Path.DirectorySeparatorChar));
+
+            var world = root.LoadSceneFromFile(path, worldName, select);
+            world.ExtractPath = Path.GetFullPath(contentRoot);
+            world.MountPoint = "content";
+            return world;
+        }
+
         /// <summary>Loads a scene from an embedded resource in the engine assembly.</summary>
         public static World LoadSceneFromResource(this GameRoot root, string resourceName, string? worldName = null, bool select = true)
         {
