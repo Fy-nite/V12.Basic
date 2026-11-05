@@ -77,6 +77,7 @@ namespace V12.Core.Systems
 
             foreach (var world in gameRoot.ActiveWorlds)
             {
+                if (!world.TickingEnabled) continue;
                 world.Lock.EnterReadLock();
                 try
                 {

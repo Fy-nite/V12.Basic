@@ -170,9 +170,8 @@ namespace V12.Bindings
 
         private static IEnumerable<World> ActiveWorldsOf(GameRoot root)
         {
-            yield return root.PersistentWorld;
-            if (root.SelectedWorld != null)
-                yield return root.SelectedWorld;
+            foreach (var w in root.ActiveWorlds)
+                yield return w;
         }
     }
 

@@ -56,9 +56,12 @@ namespace V12.Core.Systems
 
         public void Update(float deltaTime)
         {
-            // Process all active worlds via the ECS-style query API
+            // Process all ticking worlds (skip paused EditorSceneWorld)
             foreach (var world in _gameRoot.ActiveWorlds)
+            {
+                if (!world.TickingEnabled) continue;
                 ProcessWorld(world, deltaTime);
+            }
 
             _jumpRequested = false;
         }

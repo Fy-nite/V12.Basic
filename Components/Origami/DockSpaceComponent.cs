@@ -1,4 +1,4 @@
-﻿using V12.Components;
+using V12.Components;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Basic.Components.Origami
@@ -53,6 +53,9 @@ namespace V12.Basic.Components.Origami
 
         /// <summary>Optional serialized layout (see <c>DockSerializer</c>); applied on first frame.</summary>
         public string LayoutJson { get; set; } = "";
+
+        /// <summary>Tab title to activate after the next layout rebuild.</summary>
+        public string ActiveTab { get; set; } = "";
 
         public override IWorldElement BuildUI() => new V12.Core.Element();
     }

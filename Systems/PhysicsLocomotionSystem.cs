@@ -39,9 +39,12 @@ namespace V12.Core.Systems
             // Step physics before reading body state
             _physics.Step(deltaTime);
 
-            // Process all active worlds via the ECS-style query API
+            // Process all ticking worlds (EditorSceneWorld is paused in edit mode)
             foreach (var world in _gameRoot.ActiveWorlds)
+            {
+                if (!world.TickingEnabled) continue;
                 ProcessWorld(world, deltaTime);
+            }
         }
 
         private void ProcessWorld(World world, float deltaTime)
