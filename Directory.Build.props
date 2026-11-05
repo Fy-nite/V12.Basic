@@ -1,12 +1,26 @@
 <Project>
 
   <!--
-    Path to the V12 engine this repository builds against. Only a DEFAULT:
-    override it (e.g. -p:V12EngineProject=..\..\V12\V12.csproj) to build against
-    a different checkout or a versioned copy of the engine.
+    Standalone defaults. These are only used when this checkout is NOT nested
+    inside V12-Monorepo; the import at the bottom overrides them with the
+    monorepo sibling paths.
   -->
   <PropertyGroup>
     <V12EngineProject Condition="'$(V12EngineProject)' == ''">$(MSBuildThisFileDirectory)libs/V12/V12.csproj</V12EngineProject>
+    <V12PakProject Condition="'$(V12PakProject)' == ''">$(MSBuildThisFileDirectory)libs/V12.Pak/V12.Pak.csproj</V12PakProject>
+    <V12BindingsProject Condition="'$(V12BindingsProject)' == ''">$(MSBuildThisFileDirectory)libs/V12.Bindings/V12.Bindings.csproj</V12BindingsProject>
   </PropertyGroup>
+
+  <!--
+    MSBuild imports only the nearest Directory.Build.props. Pull in the
+    monorepo root props explicitly when the V12 sibling checkouts are present,
+    so its path redirects win over the libs/ defaults above.
+  -->
+  <PropertyGroup>
+    <_V12SiblingRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_V12SiblingRoot>
+    <_V12MonorepoRoot Condition="Exists('$(_V12SiblingRoot)/V12-Engine/V12.csproj') and Exists('$(_V12SiblingRoot)/V12.Basic/V12.Basic.csproj')">$(_V12SiblingRoot)</_V12MonorepoRoot>
+    <_V12MonorepoProps Condition="'$(_V12MonorepoRoot)' != ''">$([System.IO.Path]::Combine('$(_V12MonorepoRoot)', 'Directory.Build.props'))</_V12MonorepoProps>
+  </PropertyGroup>
+  <Import Project="$(_V12MonorepoProps)" Condition="'$(_V12MonorepoProps)' != '' and Exists('$(_V12MonorepoProps)')" />
 
 </Project>
