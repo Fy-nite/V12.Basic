@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using V12.Core;
 
 namespace V12.Basic
@@ -14,6 +14,8 @@ namespace V12.Basic
             gameRoot.Registry.Register("ScriptSystem", new V12.Core.Systems.ScriptSystem(gameRoot));
             gameRoot.Registry.Register("PickupSystem", new V12.Core.Systems.PickupSystem(gameRoot));
             gameRoot.Registry.Register("ButtonSystem", new V12.Core.Systems.ButtonSystem(gameRoot));
+            if (gameRoot.Registry.Get(nameof(V12.UI.IUIProvider)) == null)
+                gameRoot.Registry.Register(nameof(V12.UI.IUIProvider), new V12.Basic.UI.PaperUIProvider(gameRoot));
         }
     }
 }
