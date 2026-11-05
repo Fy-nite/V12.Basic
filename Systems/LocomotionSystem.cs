@@ -56,7 +56,7 @@ namespace V12.Core.Systems
 
         public void Update(float deltaTime)
         {
-            // Process all ticking worlds (skip paused EditorSceneWorld)
+            // Process the active ticking worlds (skip worlds paused with TickingEnabled = false)
             foreach (var world in _gameRoot.ActiveWorlds)
             {
                 if (!world.TickingEnabled) continue;

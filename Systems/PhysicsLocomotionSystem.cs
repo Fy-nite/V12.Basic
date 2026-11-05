@@ -39,7 +39,7 @@ namespace V12.Core.Systems
             // Step physics before reading body state
             _physics.Step(deltaTime);
 
-            // Process all ticking worlds (EditorSceneWorld is paused in edit mode)
+            // Process the active ticking worlds (a host can pause a world with TickingEnabled = false)
             foreach (var world in _gameRoot.ActiveWorlds)
             {
                 if (!world.TickingEnabled) continue;
