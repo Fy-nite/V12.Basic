@@ -4,6 +4,7 @@ using V12.Core.Core.Interfaces;
 using V12.Core.Input;
 using System;
 using V12.Basic.Components;
+using V12.Basic.Scene;
 using V12.Core.Interfaces.Renderer;
 
 namespace V12.Core.Systems
@@ -69,7 +70,7 @@ namespace V12.Core.Systems
         private void ProcessWorld(World world, float deltaTime)
         {
             
-            foreach (var element in world.Root)
+            foreach (var element in world.Enumerate())
             {
                 if (element == null) continue;
                 var loco = element.GetComponent<LocomotionComponent>();

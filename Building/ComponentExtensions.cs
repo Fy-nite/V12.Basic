@@ -5,6 +5,7 @@ using V12.Components;
 using V12.Components.Renderables;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.Interfaces.Physics;
 using V12.Core.Interfaces.Renderer;
 
 namespace V12.Basic.Building
@@ -35,6 +36,7 @@ namespace V12.Basic.Building
         /// <summary>Returns the element's <see cref="TransformComponent"/> or adds a new one.
         /// Non-generic so Contract scripts can call it across assembly-link:
         /// <c>this.Owner.GetOrAddTransform().RY = ...</c>.</summary>
+        /// TODO: remove this cus elements have TRS on them.
         public static TransformComponent GetOrAddTransform(this IWorldElement element)
             => element.GetOrAdd<TransformComponent>();
 
@@ -67,8 +69,17 @@ namespace V12.Basic.Building
         /// false for dynamic bodies that gravity and forces act on.
         /// </summary>
         public static PhysicsBodyComponent AddPhysics(this IWorldElement element, bool kinematic = false, float gravityScale = 1f)
+            => AddPhysics(element, kinematic ? PhysicsBodyType.Kinematic : PhysicsBodyType.Dynamic, gravityScale);
+
+        /// <summary>
+        /// Adds a physics body with an explicit <see cref="PhysicsBodyType"/>. Use
+        /// <see cref="PhysicsBodyType.Character"/> for a move-and-slide controller,
+        /// then drive it by setting <see cref="PhysicsBodyComponent.LinearVelocity"/>
+        /// or calling <see cref="PhysicsBodyComponent.AddForce"/> from game code.
+        /// </summary>
+        public static PhysicsBodyComponent AddPhysics(this IWorldElement element, PhysicsBodyType type, float gravityScale = 1f)
         {
-            var body = new PhysicsBodyComponent { IsKinematic = kinematic, GravityScale = gravityScale };
+            var body = new PhysicsBodyComponent { BodyType = type, GravityScale = gravityScale };
             element.AddComponent(body);
             return body;
         }

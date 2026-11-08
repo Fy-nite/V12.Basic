@@ -325,7 +325,10 @@ namespace V12.Bindings
             }
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            string[] names = { "V12", "V12.Basic", "V12.Bindings", "V12.Pak", "V12.Runtime", "V12Engine", "V12Studio", "V12StudioPak" };
+            // Keep this list to engine-level assemblies. Authoring-tool and renderer
+            // assemblies are intentionally excluded: they are discovered by the
+            // generic "V12*" scan below when a game actually references them.
+            string[] names = { "V12", "V12.Basic", "V12.Bindings", "V12.Pak", "V12.Runtime", "V12Engine" };
             foreach (var n in names)
                 AddFile(Path.Combine(baseDirectory, n + ".dll"));
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using V12.Basic.Components;
+using V12.Basic.Scene;
 using V12.Components;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Physics;
@@ -29,15 +30,27 @@ namespace V12.Core.Systems
 
         public void Initialize(GameRoot g)
         {
-            _physics = g.Registry.Get<IPhysicsBackend>();
+            // GameRoot picks the highest-priority registered backend. A host
+            // can supply a fallback; the highest-priority backend wins.
+            _physics = g.PhysicsBackend;
+            if (_physics == null) return;
+
+            // A backend may need one-time setup. The service Initialize
+            // methods are idempotent.
+            if (_physics is IGameService service) service.Initialize(g);
+
+            // PhysicsLocomotionSystem owns the step order.
+            _physics.AutoStep = false;
         }
         public void Update(GameRoot g) {}
         public void Update(float deltaTime)
         {
             if (_physics == null) return;
 
-            // Step physics before reading body state
-            _physics.Step(deltaTime);
+            // Step physics before reading body state. Backends that advance
+            // themselves (AutoStep) are skipped.
+            if (!_physics.AutoStep)
+                _physics.Step(deltaTime);
 
             // Process the active ticking worlds (a host can pause a world with TickingEnabled = false)
             foreach (var world in _gameRoot.ActiveWorlds)
@@ -50,7 +63,7 @@ namespace V12.Core.Systems
         private void ProcessWorld(World world, float deltaTime)
         {
 
-            foreach (var element in world.Root)
+            foreach (var element in world.Enumerate())
             {
                 var bodyComp = element.GetComponent<PhysicsBodyComponent>();
                 if (bodyComp == null)
@@ -107,8 +120,8 @@ namespace V12.Core.Systems
                         var desc = new PhysicsBodyDesc(
                             trans, rot == default ? Quaternion.Identity : rot,
                             shape, size,
-                            isKinematic: true,
-                            isCharacterController: false,
+                            mass: 1f,
+                            type: PhysicsBodyType.Kinematic,
                             gravityScale: bodyComp.GravityScale);
                         bodyComp.Body = _physics.CreateBody(desc);
                     }
@@ -148,8 +161,8 @@ namespace V12.Core.Systems
                                 : new Vector3(1f, 2f, 1f);
                             var desc = new PhysicsBodyDesc(
                                 heldPos, heldRot, shape, size,
-                                isKinematic: true,
-                                isCharacterController: false,
+                                mass: 1f,
+                                type: PhysicsBodyType.Kinematic,
                                 gravityScale: bodyComp.GravityScale);
                             bodyComp.Body = _physics.CreateBody(desc);
                         }
@@ -157,7 +170,7 @@ namespace V12.Core.Systems
                         {
                             // Flip the body to kinematic while held so position
                             // writes stick (dynamic bodies only take velocity
-                            // writes in SyncToGodot) and gravity can't accumulate.
+                            // writes) and gravity can't accumulate.
                             if (bodyComp.Body.IsDynamic)
                                 bodyComp.Body.SetKinematic(true);
                             bodyComp.Body.Position = heldPos;
@@ -180,6 +193,8 @@ namespace V12.Core.Systems
 
                 var loco = element.GetComponent<LocomotionComponent>();
                 var playerComp = element.GetComponent<PlayerComponent>();
+                var rigid = element.GetComponent<RigidBodyComponent>();
+                var bodyType = ResolveBodyType(bodyComp, loco, element);
 
                 // Create a physics body for every element with a PhysicsBodyComponent,
                 // regardless of whether it also has a LocomotionComponent.
@@ -194,10 +209,16 @@ namespace V12.Core.Systems
                     var desc = new PhysicsBodyDesc(
                         lt.Position, lt.Rotation == default ? Quaternion.Identity : lt.Rotation,
                         shape, size,
-                        isKinematic: bodyComp.IsKinematic,
-                        isCharacterController: bodyComp.IsKinematic && loco != null,
-                        gravityScale: bodyComp.GravityScale);
+                        mass: rigid?.Mass ?? 1f,
+                        type: bodyType,
+                        isTrigger: false,
+                        gravityScale: rigid?.GravityScale ?? bodyComp.GravityScale,
+                        linearDamping: rigid?.LinearDamping ?? 0f,
+                        angularDamping: rigid?.AngularDamping ?? 0f,
+                        canSleep: rigid?.CanSleep ?? true,
+                        lockRotation: bodyComp.LockRotation);
                     bodyComp.Body = _physics.CreateBody(desc);
+                    bodyComp.ApplyPendingVelocity();
 
                     // Host-authoritative movement is replicated through the component
                     // batch (TransformComponent setters MarkDirty), never the element
@@ -219,56 +240,52 @@ namespace V12.Core.Systems
                 if (bodyComp.Body == null)
                     continue;
 
-                if (bodyComp.IsKinematic)
+                if (bodyType == PhysicsBodyType.Character)
                 {
-                    if (loco != null && element.Parent == null)
-                    {
-                        // Character controller (e.g. the XR player): a Godot
-                        // CharacterBody3D owned by the backend. The ECS owns the
-                        // velocity (gravity, jump, acceleration); the backend runs
-                        // move_and_slide() on the main thread and reads the floor
-                        // state back. The element transform mirrors the slid body
-                        // so the camera never clips into a wall for a frame.
-                        var lt = element.LocalTransform;
+                    // Character controller: the backend runs its collide-and-slide
+                    // movement from LinearVelocity. Game code owns that velocity;
+                    // LocomotionComponent, when present, is only a legacy driver.
+                    var lt = element.LocalTransform;
+                    if (loco != null)
                         bodyComp.Body.LinearVelocity = loco.Velocity;
-                        lt.Position = bodyComp.Body.Position;
-                        element.LocalTransform = lt;
+                    lt.Position = bodyComp.Body.Position;
+                    element.LocalTransform = lt;
+                    if (loco != null)
                         loco.IsGrounded = bodyComp.Body.IsOnFloor;
+                    if (!bodyComp.Body.LockRotation)
                         bodyComp.Body.Rotation = lt.Rotation;
+                }
+                else if (bodyType is PhysicsBodyType.Static or PhysicsBodyType.Kinematic)
+                {
+                    // Static/kinematic: element transform drives the physics body.
+                    // Top-level kinematic bodies slide along walls via
+                    // BodyTestMotion so they don't clip through the world.
+                    // Nested kinematic bodies (e.g. grabbed boxes re-parented to a
+                    // hand, whose local transform is identity) are teleported.
+                    var lt = element.LocalTransform;
+                    var current = bodyComp.Body.Position;
+                    var desired = lt.Position;
+
+                    if (element.Parent == null)
+                    {
+                        var delta = desired - current;
+                        if (delta.LengthSquared() > 1e-8f)
+                        {
+                            var applied = _physics.MoveKinematic(bodyComp.Body, delta);
+                            lt.Position = current + applied;
+                            element.LocalTransform = lt;
+                        }
                     }
                     else
                     {
-                        // Static/kinematic: element transform drives the physics body.
-                        // Top-level kinematic bodies slide along walls via
-                        // BodyTestMotion so they don't clip through the world.
-                        // Nested kinematic bodies (e.g. grabbed boxes re-parented
-                        // to a hand, whose local transform is identity) are
-                        // teleported directly as before.
-                        var lt = element.LocalTransform;
-                        var current = bodyComp.Body.Position;
-                        var desired = lt.Position;
-
-                        if (element.Parent == null)
-                        {
-                            var delta = desired - current;
-                            if (delta.LengthSquared() > 1e-8f)
-                            {
-                                var applied = _physics.MoveKinematic(bodyComp.Body, delta);
-                                lt.Position = current + applied;
-                                element.LocalTransform = lt;
-                            }
-                        }
-                        else
-                        {
-                            bodyComp.Body.Position = desired;
-                        }
-                        bodyComp.Body.Rotation = lt.Rotation;
+                        bodyComp.Body.Position = desired;
                     }
+                    bodyComp.Body.Rotation = lt.Rotation;
                 }
                 else
                 {
-                    // Dynamic: driven by Godot physics.
-                    // V12 only syncs XZ — Godot handles Y (gravity + jump).
+                    // Dynamic: driven by the physics backend.
+                    // V12 only syncs XZ; the backend handles Y (gravity + jump).
                     bool jumped = false;
                     if (loco != null)
                     {
@@ -296,7 +313,7 @@ namespace V12.Core.Systems
                     lt.Position = bodyComp.Body.Position;
 
                     var isPlayer = playerComp != null;
-                    if (!isPlayer)
+                    if (!isPlayer && !bodyComp.Body.LockRotation)
                         lt.Rotation = bodyComp.Body.Rotation;
 
                     element.LocalTransform = lt;
@@ -328,6 +345,22 @@ namespace V12.Core.Systems
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Resolves the effective body type. Legacy scenes expressed the character
+        /// controller as a kinematic body plus a LocomotionComponent on a root
+        /// element; that still maps to <see cref="PhysicsBodyType.Character"/>.
+        /// </summary>
+        private static PhysicsBodyType ResolveBodyType(
+            PhysicsBodyComponent bodyComp, LocomotionComponent? loco, IWorldElement element)
+        {
+            if (bodyComp.BodyType != PhysicsBodyType.Kinematic)
+                return bodyComp.BodyType;
+
+            return loco != null && element.Parent == null
+                ? PhysicsBodyType.Character
+                : PhysicsBodyType.Kinematic;
         }
 
         private static long AgeMs(long epochMs)

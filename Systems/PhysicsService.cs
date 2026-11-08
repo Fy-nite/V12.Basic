@@ -17,11 +17,39 @@ using V12.Basic.Components;
 
 namespace V12.Core.Systems
 {
+    /// <summary>Mutable gravity shared with the pose integrator.</summary>
+    public sealed class GravityProvider
+    {
+        public Vector3 Value;
+        public GravityProvider(Vector3 value) { Value = value; }
+    }
+
     public class PhysicsService : IGameService, IPhysicsBackend
     {
         public Simulation? Simulation { get; private set; }
         private BufferPool? _bufferPool;
         private ThreadDispatcher? _threadDispatcher;
+
+        private const float FixedTimestep = 1f / 60f;
+        private const float MaxAccumulator = 0.25f;
+        private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+        private double _lastStepTime;
+        private float _accumulator;
+
+        private readonly GravityProvider _gravity = new(new Vector3(0, -9.81f, 0));
+
+        /// <summary>High priority so this backend wins over host fallbacks.</summary>
+        public int Priority => 100;
+
+        /// <summary>Global gravity applied to dynamic bodies.</summary>
+        public Vector3 Gravity { get => _gravity.Value; set => _gravity.Value = value; }
+
+        /// <summary>
+        /// When false the owner (PhysicsLocomotionSystem) is responsible for
+        /// calling <see cref="Step"/>. Prevents the simulation from being
+        /// advanced twice per tick.
+        /// </summary>
+        public bool AutoStep { get; set; } = true;
 
         private readonly Dictionary<long, BepuPhysicsBody> _bodyMap = new();
         // Handle -> body, so a raycast hit's CollidableReference can be resolved back to
@@ -31,28 +59,84 @@ namespace V12.Core.Systems
 
         public void Initialize(GameRoot g)
         {
+            if (Simulation != null) return;
             _bufferPool = new BufferPool();
-            _threadDispatcher = new ThreadDispatcher(Environment.ProcessorCount); 
-            
-            Simulation = Simulation.Create(_bufferPool, new NarrowPhaseCallbacks(), new PoseIntegratorCallbacks(new Vector3(0, -9.81f, 0)), new SolveDescription(8, 1));
+            _threadDispatcher = new ThreadDispatcher(Environment.ProcessorCount);
+
+            Simulation = Simulation.Create(_bufferPool, new NarrowPhaseCallbacks(), new PoseIntegratorCallbacks(_gravity), new SolveDescription(8, 1));
         }
 
         public void Update(GameRoot g) {}
         public void Update(float deltaTime)
         {
-            if (deltaTime <= 0) return;
-            if (Simulation == null) return;
-            Simulation.Timestep(deltaTime, _threadDispatcher);
+            if (AutoStep) Step(deltaTime);
         }
 
-        void IPhysicsBackend.Step(float deltaTime)
+        void IPhysicsBackend.Step(float deltaTime) => Step(deltaTime);
+
+        /// <summary>Advances the simulation and refreshes per-body derived state.</summary>
+        public void Step(float deltaTime)
         {
-            Update(deltaTime);
+            if (Simulation == null) return;
+
+            // Use real elapsed time, not the worker loop's clamped dt. The loop
+            // can run far faster than 1 kHz; its minimum clamp would otherwise
+            // make simulated time (and movement speed) scale with loop FPS.
+            var now = _clock.Elapsed.TotalSeconds;
+            float realDelta = _lastStepTime == 0.0
+                ? MathF.Max(deltaTime, 0f)
+                : (float)(now - _lastStepTime);
+            _lastStepTime = now;
+
+            if (realDelta <= 0f) return;
+
+            _accumulator = MathF.Min(_accumulator + realDelta, MaxAccumulator);
+
+            int steps = 0;
+            while (_accumulator >= FixedTimestep && steps < 8)
+            {
+                Simulation.Timestep(FixedTimestep, _threadDispatcher);
+                _accumulator -= FixedTimestep;
+                steps++;
+            }
+
+            if (steps == 0) return;
+
+            ApplyBodySettings(FixedTimestep * steps);
+            UpdateGrounded();
+        }
+
+        private void ApplyBodySettings(float deltaTime)
+        {
+            foreach (var body in _bodyMap.Values)
+            {
+                if (!body.IsDynamic) continue;
+                var b = Simulation!.Bodies[body.Handle];
+                if (body.LockRotation)
+                    b.Velocity.Angular = Vector3.Zero;
+                if (body.LinearDamping > 0f)
+                    b.Velocity.Linear *= MathF.Max(0f, 1f - body.LinearDamping * deltaTime);
+                if (body.AngularDamping > 0f)
+                    b.Velocity.Angular *= MathF.Max(0f, 1f - body.AngularDamping * deltaTime);
+            }
+        }
+
+        private void UpdateGrounded()
+        {
+            foreach (var body in _bodyMap.Values)
+            {
+                if (!body.IsDynamic || body.GroundProbeDistance <= 0f) continue;
+
+                var position = Simulation!.Bodies[body.Handle].Pose.Position;
+                var handler = new RayHitHandler { IgnoreHandle = body.Handle };
+                Simulation.RayCast(position, -Vector3.UnitY, body.GroundProbeDistance, _bufferPool!, ref handler);
+                body.IsOnFloor = handler.HitFound && handler.T <= body.GroundProbeDistance;
+            }
         }
 
         Vector3 IPhysicsBackend.MoveKinematic(IPhysicsBody body, Vector3 delta)
         {
-            // Bepu backend: no sliding — just apply the full delta to the body.
+            // This backend has no sliding: apply the full delta to the body.
             if (body is BepuPhysicsBody b)
                 b.Position = b.Position + delta;
             return delta;
@@ -62,13 +146,28 @@ namespace V12.Core.Systems
         {
             TypedIndex shapeIndex = CreateShape(desc);
 
-            var description = desc.IsKinematic
-                ? BodyDescription.CreateKinematic(new RigidPose(desc.Position, desc.Rotation), new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f))
-                : BodyDescription.CreateDynamic(new RigidPose(desc.Position, desc.Rotation), new BodyInertia { InverseMass = desc.Mass > 0 ? 1f / desc.Mass : 1f }, new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f));
+            bool isCharacter = desc.Type == PhysicsBodyType.Character;
+            bool isDynamic = desc.Type is PhysicsBodyType.Dynamic or PhysicsBodyType.Character;
+            var collidable = new CollidableDescription(shapeIndex, 0.1f);
+            var activity = new BodyActivityDescription(0.01f);
+            float inverseMass = desc.Mass > 0f ? 1f / desc.Mass : 1f;
 
-            var handle = Simulation.Bodies.Add(description);
+            var description = isDynamic
+                ? BodyDescription.CreateDynamic(new RigidPose(desc.Position, desc.Rotation),
+                    new BodyInertia { InverseMass = inverseMass }, collidable, activity)
+                : BodyDescription.CreateKinematic(new RigidPose(desc.Position, desc.Rotation), collidable, activity);
+
+            var handle = Simulation!.Bodies.Add(description);
             long id = _nextBodyId++;
-            var body = new BepuPhysicsBody(handle, Simulation, id);
+            var body = new BepuPhysicsBody(handle, Simulation, id, collidable, inverseMass, activity)
+            {
+                IsDynamic = isDynamic,
+                IsCharacterController = isCharacter,
+                LockRotation = desc.LockRotation || isCharacter,
+                LinearDamping = desc.LinearDamping,
+                AngularDamping = desc.AngularDamping,
+                GroundProbeDistance = isCharacter ? desc.Size.Y * 0.5f + 0.15f : 0f,
+            };
             _bodyMap[id] = body;
             _bodiesByHandle[handle] = body;
             return body;
@@ -228,11 +327,13 @@ namespace V12.Core.Systems
             var rot = lt.Rotation;
 
             var physicsComp = element.GetComponent<PhysicsBodyComponent>();
-            bool isKinematic = physicsComp != null ? physicsComp.IsKinematic : true;
+            var rigid = element.GetComponent<RigidBodyComponent>();
+            bool isKinematic = physicsComp == null || physicsComp.BodyType != PhysicsBodyType.Dynamic;
+            float mass = rigid?.Mass ?? 1f;
 
             var description = isKinematic 
                 ? BodyDescription.CreateKinematic(new RigidPose(pos, rot), new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f))
-                : BodyDescription.CreateDynamic(new RigidPose(pos, rot), new BodyInertia { InverseMass = 1f }, new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f));
+                : BodyDescription.CreateDynamic(new RigidPose(pos, rot), new BodyInertia { InverseMass = mass > 0f ? 1f / mass : 1f }, new CollidableDescription(shapeIndex, 0.1f), new BodyActivityDescription(0.01f));
             
             return Simulation.Bodies.Add(description);
         }
@@ -244,20 +345,32 @@ namespace V12.Core.Systems
         public Simulation Simulation { get; }
         public long Id { get; }
         public bool IsDynamic { get; set; } = true;
-        public bool IsCharacterController => false;
-        public bool IsOnFloor => false;
+        public bool IsCharacterController { get; set; }
+        public bool IsOnFloor { get; set; }
+        public bool LockRotation { get; set; }
+        public float LinearDamping { get; set; }
+        public float AngularDamping { get; set; }
+        public float GroundProbeDistance { get; set; }
 
-        public BepuPhysicsBody(BodyHandle handle, Simulation simulation, long id)
+        private readonly CollidableDescription _collidable;
+        private readonly float _inverseMass;
+        private readonly BodyActivityDescription _activity;
+
+        public BepuPhysicsBody(BodyHandle handle, Simulation simulation, long id,
+            in CollidableDescription collidable, float inverseMass, in BodyActivityDescription activity)
         {
             Handle = handle;
             Simulation = simulation;
             Id = id;
+            _collidable = collidable;
+            _inverseMass = inverseMass;
+            _activity = activity;
         }
 
         public Vector3 Position
         {
             get => Simulation.Bodies[Handle].Pose.Position;
-            // Waking on pose/velocity writes is required: Bepu bodies sleep after
+            // Waking on pose/velocity writes is required: bodies sleep after
             // resting (BodyActivityDescription 0.01), and writing a sleeping body's
             // pose/velocity does NOT wake it, so it would never integrate again.
             set { var b = Simulation.Bodies[Handle]; b.Pose.Position = value; b.Awake = true; }
@@ -275,6 +388,12 @@ namespace V12.Core.Systems
             set { var b = Simulation.Bodies[Handle]; b.Velocity.Linear = value; b.Awake = true; }
         }
 
+        public Vector3 AngularVelocity
+        {
+            get => Simulation.Bodies[Handle].Velocity.Angular;
+            set { var b = Simulation.Bodies[Handle]; b.Velocity.Angular = value; b.Awake = true; }
+        }
+
         public void AddForce(Vector3 force)
         {
             var b = Simulation.Bodies[Handle];
@@ -284,9 +403,23 @@ namespace V12.Core.Systems
             b.Awake = true;
         }
 
+        public void AddTorque(Vector3 torque)
+        {
+            var b = Simulation.Bodies[Handle];
+            b.ApplyAngularImpulse(torque);
+            b.Awake = true;
+        }
+
         public void SetKinematic(bool kinematic)
         {
-            // Bepu backend: no-op for now (not used with Godot frontend)
+            if (kinematic == !IsDynamic) return;
+
+            IsDynamic = !kinematic;
+            var pose = new RigidPose(Position, Rotation);
+            var description = kinematic
+                ? BodyDescription.CreateKinematic(pose, _collidable, _activity)
+                : BodyDescription.CreateDynamic(pose, new BodyInertia { InverseMass = _inverseMass }, _collidable, _activity);
+            Simulation.Bodies.ApplyDescription(Handle, description);
         }
     }
 
@@ -304,12 +437,20 @@ namespace V12.Core.Systems
         public float T;
         public Vector3 Normal;
         public CollidableReference Collidable;
+        /// <summary>Optional body handle to ignore, e.g. the body casting its own ground probe.</summary>
+        public BodyHandle? IgnoreHandle;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool AllowTest(CollidableReference collidable) => true;
+        public bool AllowTest(CollidableReference collidable)
+            => collidable.Mobility == CollidableMobility.Static
+               || !IgnoreHandle.HasValue
+               || collidable.BodyHandle != IgnoreHandle.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool AllowTest(CollidableReference collidable, int childIndex) => true;
+        public bool AllowTest(CollidableReference collidable, int childIndex)
+            => collidable.Mobility == CollidableMobility.Static
+               || !IgnoreHandle.HasValue
+               || collidable.BodyHandle != IgnoreHandle.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void OnRayHit(in RayData ray, ref float maximumT, float t, in Vector3 normal, CollidableReference collidable, int childIndex)
@@ -358,7 +499,7 @@ namespace V12.Core.Systems
 
     public struct PoseIntegratorCallbacks : IPoseIntegratorCallbacks
     {
-        public Vector3 Gravity;
+        private readonly GravityProvider _provider;
         Vector3Wide gravityWide;
 
         public readonly AngularIntegrationMode AngularIntegrationMode => (AngularIntegrationMode)0;
@@ -366,20 +507,20 @@ namespace V12.Core.Systems
         public bool AllowSubstepsForUnconstrainedBodies => false;
         public readonly bool IntegrateVelocityForKinematics => false;
 
-        public PoseIntegratorCallbacks(Vector3 gravity)
+        public PoseIntegratorCallbacks(GravityProvider provider)
         {
-            Gravity = gravity;
+            _provider = provider;
             gravityWide = default;
         }
 
-        public void Initialize(Simulation simulation)
-        {
-            Vector3Wide.Broadcast(Gravity, out gravityWide);
-        }
+        public void Initialize(Simulation simulation) { }
 
         public void PrepareForMultithreadedExecution(int workerCount) { }
 
-        public void PrepareForIntegration(float dt) { }
+        public void PrepareForIntegration(float dt)
+        {
+            Vector3Wide.Broadcast(_provider.Value, out gravityWide);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void IntegrateVelocity(Vector<int> bodyIndices, Vector3Wide position, QuaternionWide orientation, BodyInertiaWide localInertia, Vector<int> integrationMask, int workerIndex, Vector<float> dt, ref BodyVelocityWide velocity)
