@@ -505,6 +505,8 @@ public class WorldSyncHandler
         {
             element.Name = update.Name;
             element.Description = update.Description;
+            if (update.Uid != Guid.Empty)
+                element.Uid = update.Uid;
 
             var lt = element.LocalTransform;
             lt.Position = update.Position;
@@ -663,6 +665,8 @@ public class WorldSyncHandler
             return;
 
         localEl.Id = serverEl.Id;
+        if (serverEl.Uid != Guid.Empty)
+            localEl.Uid = serverEl.Uid;
 
         foreach (var serverComp in serverEl.Components)
         {
