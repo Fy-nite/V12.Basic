@@ -42,10 +42,9 @@ try
     var crate = root.FindElement(e => e.Name == "crate");
     Check(crate != null, "V12.World.SpawnElementAt spawned 'crate'");
     if (crate == null) throw new Exception("crate missing");
-    Check(crate.GetComponent("Transform") is TransformComponent tr
-        && Math.Abs(tr.X - 1.0f) < 1e-4f
-        && Math.Abs(tr.Y - 2.0f) < 1e-4f
-        && Math.Abs(tr.Z - 3.0f) < 1e-4f, "SpawnElementAt position (1,2,3)");
+    Check(Math.Abs(crate.LocalTransform.Position.X - 1.0f) < 1e-4f
+        && Math.Abs(crate.LocalTransform.Position.Y - 2.0f) < 1e-4f
+        && Math.Abs(crate.LocalTransform.Position.Z - 3.0f) < 1e-4f, "SpawnElementAt position (1,2,3)");
     Check(crate.GetComponent("Mesh") != null, "V12.Components.AddMesh added Mesh");
     Check(crate.GetComponent("Material") is MaterialComponent mat && Math.Abs(mat.R - 0.8f) < 1e-3f, "SetColor set R=0.8");
     Check(crate.GetComponent("Collider") != null, "V12.Components.AddCollider added Collider");
@@ -163,7 +162,12 @@ try
     // The element is added to the world BEFORE the script component attaches,
     // so on_init can address it via V12.World.* lookups.
     var scriptedElement = new Element("ScriptedCube");
-    scriptedElement.AddComponent(new TransformComponent(4f, 4f, 4f));
+    scriptedElement.LocalTransform = new V12.Core.Interfaces.Renderer.TRS
+    {
+        Position = new System.Numerics.Vector3(4f, 4f, 4f),
+        Rotation = System.Numerics.Quaternion.Identity,
+        Scale = System.Numerics.Vector3.One,
+    };
     world!.AddElement(scriptedElement);
     scriptedElement.AddComponent(new ScriptComponent
     {
@@ -206,19 +210,17 @@ try
     File.WriteAllText(linkPath, """
         Contract Program {
             static fn Main() {
-                var t = new V12.Components.TransformComponent();
-                t.X = 1.5;
-                t.Y = 2.5;
-                t.Rotation = 90.0;
-                V12.Registry.RegisterDouble("link.transform.x", t.X);
-                V12.Log.Info("assembly-link set a real TransformComponent");
+                var m = new V12.Components.MeshComponent();
+                m.Width = 1.5;
+                V12.Registry.RegisterDouble("link.mesh.width", m.Width);
+                V12.Log.Info("assembly-link set a real MeshComponent");
             }
         }
         """);
     var linkHost = ContractV12Host.Create(linkPath, V12LinkedAssemblies.All);
     Check(linkHost != null, "assembly-link host created against the V12 engine");
-    var linkX = root.Registry.Get("link.transform.x")?.ServiceInstance;
-    Check(linkX is double lx && Math.Abs(lx - 1.5) < 1e-6, $"assembly-link called real V12 API (X={linkX})");
+    var linkWidth = root.Registry.Get("link.mesh.width")?.ServiceInstance;
+    Check(linkWidth is double lw && Math.Abs(lw - 1.5) < 1e-6, $"assembly-link called real V12 API (Width={linkWidth})");
     File.Delete(linkPath);
 
     File.Delete(scriptPath);

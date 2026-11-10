@@ -23,17 +23,17 @@ namespace V12.Basic.Components
         public float MaxHealth
         {
             get => _maxHealth;
-            set { if (Math.Abs(_maxHealth - value) > 0.001f) { _maxHealth = MathF.Max(0f, value); MarkDirty(); } }
+            set => SetSync(ref _maxHealth, MathF.Max(0f, value), 0.001f);
         }
         public float CurrentHealth
         {
             get => _currentHealth;
-            set { if (Math.Abs(_currentHealth - value) > 0.001f) { _currentHealth = Math.Clamp(value, 0f, _maxHealth); MarkDirty(); } }
+            set => SetSync(ref _currentHealth, Math.Clamp(value, 0f, _maxHealth), 0.001f);
         }
         public bool IsInvincible
         {
             get => _isInvincible;
-            set { if (_isInvincible != value) { _isInvincible = value; MarkDirty(); } }
+            set => SetSync(ref _isInvincible, value);
         }
         public bool IsAlive => _currentHealth > 0f;
 

@@ -27,18 +27,18 @@ namespace V12.Basic.Building
             return created;
         }
 
-        /// <summary>Returns the element's <see cref="TransformComponent"/>, or null.
+        /// <summary>Returns a view over the element's own transform, or null.
         /// Non-generic so Contract scripts can call it across assembly-link
         /// (generic methods don't cross the v1 boundary).</summary>
-        public static TransformComponent? GetTransform(this IWorldElement element)
-            => element.GetComponent<TransformComponent>();
+        public static TransformHandle? GetTransform(this IWorldElement element)
+            => element == null ? null : new TransformHandle(element);
 
-        /// <summary>Returns the element's <see cref="TransformComponent"/> or adds a new one.
+        /// <summary>Returns a view over the element's own transform. No component
+        /// is created: the pose lives on <see cref="IWorldElement.LocalTransform"/>.
         /// Non-generic so Contract scripts can call it across assembly-link:
         /// <c>this.Owner.GetOrAddTransform().RY = ...</c>.</summary>
-        /// TODO: remove this cus elements have TRS on them.
-        public static TransformComponent GetOrAddTransform(this IWorldElement element)
-            => element.GetOrAdd<TransformComponent>();
+        public static TransformHandle GetOrAddTransform(this IWorldElement element)
+            => new(element);
 
         /// <summary>Returns the element's <see cref="MeshComponent"/>, or null (non-generic, script-callable).</summary>
         public static MeshComponent? GetMesh(this IWorldElement element)
@@ -121,27 +121,14 @@ namespace V12.Basic.Building
         }
 
         /// <summary>
-        /// Sets position (and optional rotation in degrees) and keeps the element's
-        /// <see cref="TransformComponent"/> and <c>LocalTransform</c> consistent.
+        /// Sets position and optional rotation in degrees on the element's own
+        /// <see cref="IWorldElement.LocalTransform"/>. No TransformComponent is
+        /// created or kept in sync because there is only one pose now.
         /// </summary>
-        /// <remarks>
-        /// A <see cref="TransformComponent"/> is created up-front on purpose: the mesh reads
-        /// the TransformComponent's rotation when one exists, while the physics body follows
-        /// <c>LocalTransform</c>. Keeping both in sync here is what stops a rotated object's
-        /// mesh and collider from disagreeing.
-        /// </remarks>
-        public static TransformComponent SetTransform(this IWorldElement element, Vector3 position, Vector3? rotationDegrees = null)
+        public static TransformHandle SetTransform(this IWorldElement element, Vector3 position, Vector3? rotationDegrees = null)
         {
             const float deg2rad = MathF.PI / 180f;
             var rotation = rotationDegrees ?? Vector3.Zero;
-
-            var transform = element.GetOrAdd<TransformComponent>();
-            transform.X = position.X;
-            transform.Y = position.Y;
-            transform.Z = position.Z;
-            transform.RotationX = rotation.X;
-            transform.RotationY = rotation.Y;
-            transform.RotationZ = rotation.Z;
 
             var quaternion = Quaternion.CreateFromYawPitchRoll(
                 rotation.Y * deg2rad,
@@ -152,15 +139,15 @@ namespace V12.Basic.Building
             {
                 Position = position,
                 Rotation = quaternion,
-                Scale = Vector3.One,
+                Scale = element.LocalTransform.Scale,
             };
-            return transform;
+            return new TransformHandle(element);
         }
 
-        public static TransformComponent SetPosition(this IWorldElement element, float x, float y, float z)
+        public static TransformHandle SetPosition(this IWorldElement element, float x, float y, float z)
             => element.SetTransform(new Vector3(x, y, z));
 
-        public static TransformComponent SetRotation(this IWorldElement element, float xDegrees, float yDegrees, float zDegrees)
+        public static TransformHandle SetRotation(this IWorldElement element, float xDegrees, float yDegrees, float zDegrees)
             => element.SetTransform(element.LocalTransform.Position, new Vector3(xDegrees, yDegrees, zDegrees));
 
         /// <summary>
@@ -175,36 +162,12 @@ namespace V12.Basic.Building
         }
 
         /// <summary>
-        /// Copies every element's <see cref="TransformComponent"/> back into its
-        /// <c>LocalTransform</c> (recursively).
+        /// Kept for source compatibility with old scene-loading code. Elements now
+        /// own their pose directly, so there is no TransformComponent to copy back.
         /// </summary>
-        /// <remarks>
-        /// WorldML scenes populate the TransformComponent, but the physics/ECS paths read
-        /// LocalTransform — the two are otherwise independent. Call this once after loading
-        /// or merging an XML scene so scene-placed objects get correct physics bodies.
-        /// </remarks>
+        [Obsolete("Elements own their pose in LocalTransform. This method is a no-op.")]
         public static void SyncLocalTransforms(this World world)
         {
-            if (world == null) return;
-            foreach (var root in world.Root.ToArray())
-                SyncLocalTransform(root);
-        }
-
-        private static void SyncLocalTransform(IWorldElement element)
-        {
-            var transform = element.GetComponent<TransformComponent>();
-            if (transform != null)
-            {
-                element.LocalTransform = new TRS
-                {
-                    Position = new Vector3(transform.X, transform.Y, transform.Z),
-                    Rotation = Quaternion.CreateFromYawPitchRoll(transform.RY, transform.RX, transform.RZ),
-                    Scale = Vector3.One,
-                };
-            }
-
-            foreach (var child in element.Children.ToArray())
-                SyncLocalTransform(child);
         }
     }
 }

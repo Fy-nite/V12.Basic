@@ -73,6 +73,11 @@ public class WorldSyncHandler
             Log.Information($"[Network] WorldSync: using BSON world (no local archive available)");
         }
 
+        // Keep the host's stable world id so later deltas and updates can be
+        // scoped to this world instead of relying on a global element-id scan.
+        if (received.Id != Guid.Empty)
+            worldToUse.Id = received.Id;
+
         // Find and untrack the old server world so DirtyTracker subscriptions
         // don't leak when we replace the element tree.
         var oldServerWorld = _root.Worlds.Find(w => w.WorldName == serverWorldName);
@@ -143,6 +148,7 @@ public class WorldSyncHandler
                 {
                     if (!prop.CanRead || !prop.CanWrite) continue;
                     bool liveOnly = typeof(System.MulticastDelegate).IsAssignableFrom(prop.PropertyType)
+                        || typeof(ISyncValue).IsAssignableFrom(prop.PropertyType)
                         || prop.GetCustomAttribute<MongoDB.Bson.Serialization.Attributes.BsonIgnoreAttribute>() != null;
                     if (!liveOnly) continue;
                     object? value;
@@ -344,14 +350,14 @@ public class WorldSyncHandler
         if (create?.Element == null) return;
 
         // Id already exists (duplicate delta / already applied) → skip.
-        if (_root.FindElement(e => e.Id == create.Element.Id) != null) return;
+        if (FindElement(create.WorldId, create.Element.Id) != null) return;
 
         var element = AncientCompressor.DecompressElement(create.Element);
         if (element == null) return;
 
         IWorldElement? parent = null;
         if (create.ParentId != 0)
-            parent = _root.FindElement(e => e.Id == create.ParentId);
+            parent = FindElement(create.WorldId, create.ParentId);
 
             dt?.WithCaptureSuppressed(() =>
             {
@@ -362,7 +368,7 @@ public class WorldSyncHandler
                 }
                 else
                 {
-                    var world = ResolveDeltaWorld(create.WorldName);
+                    var world = ResolveDeltaWorld(create.WorldName, create.WorldId);
                     world?.AddElement(element);
                     Log.Information($"[Network] WorldDelta create: '{element.Name}' (Id={element.Id}) added to '{world?.WorldName}'");
                 }
@@ -404,8 +410,15 @@ public class WorldSyncHandler
     /// receive the server world renamed "Server_&lt;name&gt;"), then a name match, then
     /// falls back to the selected world.
     /// </summary>
-    private World? ResolveDeltaWorld(string? worldName)
+    private World? ResolveDeltaWorld(string? worldName, Guid worldId = default)
     {
+        if (worldId != Guid.Empty)
+        {
+            if (_root.PersistentWorld.Id == worldId) return _root.PersistentWorld;
+            foreach (var w in _root.Worlds)
+                if (w.Id == worldId) return w;
+        }
+
         if (_root.SelectedWorld != null)
         {
             var sw = _root.SelectedWorld.WorldName;
@@ -423,6 +436,19 @@ public class WorldSyncHandler
         }
 
         return _root.SelectedWorld;
+    }
+
+    /// <summary>Find an element by id inside the world identified on the wire
+    /// first, then fall back to the legacy global scan for old peers.</summary>
+    private IWorldElement? FindElement(Guid worldId, long elementId)
+    {
+        if (worldId != Guid.Empty)
+        {
+            var world = ResolveDeltaWorld(null, worldId);
+            var scoped = world?.FindElementById(elementId);
+            if (scoped != null) return scoped;
+        }
+        return _root.FindElement(e => e.Id == elementId);
     }
 
     // ── WorldUpdate ─────────────────────────────────────────────────
@@ -448,7 +474,7 @@ public class WorldSyncHandler
                     var incoming = AncientCompressor.DecompressComponent(csDto);
                     if (incoming == null) continue;
 
-                    if (ApplyComponentUpdateRecursive(incoming, snapshot.Id))
+                    if (ApplyComponentUpdateRecursive(incoming, snapshot.Id, snapshot.WorldId))
                         continue;
 
                     // Component not present locally: it was added to an existing element
@@ -456,7 +482,7 @@ public class WorldSyncHandler
                     // Attach it so later updates can match by id.
                     if (snapshot.ElementId != 0 && incoming.Id != 0)
                     {
-                        var target = _root.FindElement(e => e.Id == snapshot.ElementId);
+                        var target = FindElement(snapshot.WorldId, snapshot.ElementId);
                         if (target != null && target.Components.Find(c => c.Id == incoming.Id) == null)
                         {
                             dt?.WithCaptureSuppressed(() => target.AddComponent(incoming));
@@ -498,7 +524,7 @@ public class WorldSyncHandler
     private void ApplyElementUpdate(ElementUpdateDTO update, DirtyTracker? dt)
     {
         if (update == null) return;
-        var element = _root.FindElement(e => e.Id == update.Id);
+        var element = FindElement(update.WorldId, update.Id);
         if (element == null) return; // race: not created yet → drop, self-corrects
 
         dt?.WithCaptureSuppressed(() =>
@@ -533,7 +559,9 @@ public class WorldSyncHandler
         }
         else
         {
-            var newParent = _root.FindElement(e => e.Id == newParentId);
+            var world = _root.GetWorldForElement(element);
+            var newParent = world?.FindElementById(newParentId)
+                ?? _root.FindElement(e => e.Id == newParentId);
             if (newParent == null) return;
             if (element.Parent != null)
                 element.Parent.RemoveChild(element);
@@ -558,7 +586,7 @@ public class WorldSyncHandler
 
         lock (_root)
         {
-            var element = _root.FindElement(e => e.Id == dto.ElementId);
+            var element = FindElement(dto.WorldId, dto.ElementId);
             if (element == null) return;
 
             foreach (var componentId in dto.ComponentIds)
@@ -576,22 +604,28 @@ public class WorldSyncHandler
 
     // ── Helper methods ──────────────────────────────────────────────
 
-    private bool ApplyComponentUpdateRecursive(IComponent incoming, long targetId)
+    private bool ApplyComponentUpdateRecursive(IComponent incoming, long targetId, Guid worldId = default)
     {
-        bool found = false;
+        if (worldId != Guid.Empty)
+        {
+            var world = ResolveDeltaWorld(null, worldId);
+            if (world != null)
+            {
+                foreach (var element in world.Root)
+                    if (TryApplyToElement(element, incoming, targetId))
+                        return true;
+            }
+        }
+
         foreach (var w in _root.ActiveWorlds)
         {
             foreach (var element in w.Root)
             {
                 if (TryApplyToElement(element, incoming, targetId))
-                {
-                    found = true;
-                    break;
-                }
+                    return true;
             }
-            if (found) break;
         }
-        return found;
+        return false;
     }
 
     private static bool TryApplyToElement(IWorldElement element, IComponent incoming, long targetId)
@@ -630,6 +664,7 @@ public class WorldSyncHandler
     private static bool ShouldCopyMember(System.Reflection.PropertyInfo prop)
     {
         bool skip = typeof(System.MulticastDelegate).IsAssignableFrom(prop.PropertyType)
+            || typeof(ISyncValue).IsAssignableFrom(prop.PropertyType)
             || prop.GetCustomAttribute<MongoDB.Bson.Serialization.Attributes.BsonIgnoreAttribute>() != null;
         if (skip)
         {

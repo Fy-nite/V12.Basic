@@ -66,7 +66,7 @@ Two convenience layers for building scenes quickly: `V12.Basic.Building` (progra
 | `world.AddGround/AddBoundaryWalls/SpawnBoxStack/SpawnGrid/AddSpawnPoint/AddSun` | Level scaffolding |
 | `world.SpawnPlayer3D(...)` | Player + locomotion + camera (camera auto-created) |
 | `new ElementBuilder("Crate").Box().Dynamic().Material(...).At(...).Build(world)` | Fluent builder (composes the above) |
-| `world.SyncLocalTransforms()` | Reconcile `TransformComponent` → `LocalTransform` after loading XML |
+| `world.SyncLocalTransforms()` | Obsolete no-op; elements own their pose in `LocalTransform` |
 
 ```csharp
 world.AddGround(size: 40f, topY: 0f);

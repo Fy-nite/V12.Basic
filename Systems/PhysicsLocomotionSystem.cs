@@ -71,10 +71,7 @@ namespace V12.Core.Systems
 
                 // Host-replicated body: never simulate locally. Create a kinematic
                 // follower so the client keeps a collidable presence, and drive it
-                // from the host-authoritative transform each tick. The receive path
-                // (TryApplyToElement) writes the TransformComponent directly, NOT
-                // element.LocalTransform, so the pose is read from the transform
-                // component / world matrix, never LocalTransform.
+                // from the host-authoritative element pose each tick.
                 if (bodyComp.IsReplicated)
                 {
                     // Stale client grab (holder vanished): resume host-driven following.
@@ -96,17 +93,8 @@ namespace V12.Core.Systems
                         var wt = element.WorldTransform;
                         if (!Matrix4x4.Decompose(wt, out _, out rot, out trans))
                         {
-                            var tc = element.GetComponent<TransformComponent>();
-                            if (tc != null)
-                            {
-                                trans = new Vector3(tc.X, tc.Y, tc.Z);
-                                rot = Quaternion.CreateFromYawPitchRoll(tc.RY, tc.RX, tc.RZ);
-                            }
-                            else
-                            {
-                                trans = element.LocalTransform.Position;
-                                rot = element.LocalTransform.Rotation;
-                            }
+                            trans = element.LocalTransform.Position;
+                            rot = element.LocalTransform.Rotation;
                         }
                     }
 
@@ -178,9 +166,9 @@ namespace V12.Core.Systems
                             bodyComp.Body.LinearVelocity = Vector3.Zero;
                         }
 
-                        // Element pose follows the client: LocalTransform also
-                        // mirrors into the TransformComponent (dirty → component
-                        // batch) so every peer converges on the held pose.
+                        // Element pose follows the client. LocalTransform marks
+                        // the element dirty, so WorldElementUpdate carries the
+                        // held pose to every peer.
                         element.LocalTransform = new TRS
                         {
                             Position = heldPos,
@@ -220,17 +208,11 @@ namespace V12.Core.Systems
                     bodyComp.Body = _physics.CreateBody(desc);
                     bodyComp.ApplyPendingVelocity();
 
-                    // Host-authoritative movement is replicated through the component
-                    // batch (TransformComponent setters MarkDirty), never the element
-                    // batch (which carries no transform data and is ignored by peers).
-                    // Ensure a TransformComponent exists so this body's motion reaches
-                    // remote clients. Player pose is replicated via RemotePlayerManager,
-                    // so the local player is skipped to avoid redundant traffic.
-                    if (playerComp == null && element.GetComponent<TransformComponent>() == null)
-                    {
-                        element.AddComponent(new TransformComponent(lt.Position.X, lt.Position.Y, lt.Position.Z));
-                    }
-
+                    // Host-authoritative movement reaches peers through the
+                    // element update path: LocalTransform marks the element dirty
+                    // and WorldElementUpdate carries the pose. Player pose is
+                    // replicated via RemotePlayerManager, so the local player is
+                    // skipped to avoid redundant traffic.
                     if (playerComp != null)
                     {
                         Console.WriteLine($"[PhysicsLocomotionSystem] Created physics body for player at ({lt.Position.X:F2}, {lt.Position.Y:F2}, {lt.Position.Z:F2})");

@@ -16,24 +16,21 @@ namespace V12.Bindings
     [ClassBinding("V12.Components")]
     public static class V12Components
     {
-        /// <summary>Add a TransformComponent to the element (repositions it if one exists).</summary>
+        /// <summary>Set an element's own transform position. Kept under the old
+        /// name for Contract compatibility; no component is created.</summary>
         [MethodBinding]
         public static bool AddTransform(long elementId, float x, float y, float z)
         {
             var element = V12World.FindElement(elementId);
             if (element == null) return false;
 
-            var transform = element.GetComponent<TransformComponent>();
-            if (transform == null)
-            {
-                element.AddComponent(new TransformComponent(x, y, z));
-                return true;
-            }
-            transform.SetPosition(x, y, z);
+            var pose = element.LocalTransform;
+            pose.Position = new System.Numerics.Vector3(x, y, z);
+            element.LocalTransform = pose;
             return true;
         }
 
-        /// <summary>Set an element's transform position (creates a TransformComponent if needed).</summary>
+        /// <summary>Set an element's transform position.</summary>
         [MethodBinding]
         public static bool SetPosition(long elementId, float x, float y, float z)
             => AddTransform(elementId, x, y, z);
@@ -207,7 +204,7 @@ namespace V12.Bindings
 
             switch (typeName.Trim().ToLowerInvariant())
             {
-                case "transform": return EnsureTransform(element) != null;
+                case "transform": return true; // every element owns a LocalTransform
                 case "mesh": return EnsureMesh(element) != null;
                 case "collider": return EnsureCollider(element) != null;
                 case "material": return EnsureMaterial(element) != null;
@@ -275,17 +272,6 @@ namespace V12.Bindings
         }
 
         // ── Helpers ────────────────────────────────────────────────────
-
-        private static TransformComponent EnsureTransform(IWorldElement element)
-        {
-            var transform = element.GetComponent<TransformComponent>();
-            if (transform == null)
-            {
-                transform = new TransformComponent(0f, 0f, 0f);
-                element.AddComponent(transform);
-            }
-            return transform;
-        }
 
         private static MeshComponent EnsureMesh(IWorldElement element)
         {

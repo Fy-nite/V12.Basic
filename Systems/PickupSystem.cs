@@ -265,9 +265,8 @@ namespace V12.Core.Systems
             long now = NowMs();
             var rot = _grabbedBody.Rotation;
 
-            // Keep the local render + follower in sync even before the host relays:
-            // LocalTransform also mirrors into the TransformComponent (renderer
-            // prefers it when present).
+            // Keep the local render + follower in sync even before the host
+            // relays: the element's LocalTransform is the render pose.
             _grabbedElement.LocalTransform = new TRS
             {
                 Position = followPos,

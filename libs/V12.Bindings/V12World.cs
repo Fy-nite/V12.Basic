@@ -27,7 +27,7 @@ namespace V12.Bindings
             return element.Id;
         }
 
-        /// <summary>Spawn a root element with a TransformComponent at a position.</summary>
+        /// <summary>Spawn a root element at a position.</summary>
         [MethodBinding]
         public static long SpawnElementAt(string name, float x, float y, float z)
         {
@@ -96,22 +96,22 @@ namespace V12.Bindings
             return true;
         }
 
-        /// <summary>Set the element's world position (creates a TransformComponent if needed).</summary>
+        /// <summary>Set the element's own transform position.</summary>
         [MethodBinding]
         public static bool SetPosition(long elementId, float x, float y, float z)
             => V12Components.SetPosition(elementId, x, y, z);
 
         [MethodBinding]
         public static float GetPositionX(long elementId)
-            => FindTransform(elementId)?.X ?? 0f;
+            => FindElement(elementId)?.LocalTransform.Position.X ?? 0f;
 
         [MethodBinding]
         public static float GetPositionY(long elementId)
-            => FindTransform(elementId)?.Y ?? 0f;
+            => FindElement(elementId)?.LocalTransform.Position.Y ?? 0f;
 
         [MethodBinding]
         public static float GetPositionZ(long elementId)
-            => FindTransform(elementId)?.Z ?? 0f;
+            => FindElement(elementId)?.LocalTransform.Position.Z ?? 0f;
 
         /// <summary>Number of root elements in the current world.</summary>
         [MethodBinding]
@@ -137,8 +137,5 @@ namespace V12.Bindings
             if (root == null || elementId <= 0) return null;
             return root.FindElements(e => e.Id == elementId).FirstOrDefault();
         }
-
-        internal static TransformComponent? FindTransform(long elementId)
-            => FindElement(elementId)?.GetComponent<TransformComponent>();
     }
 }

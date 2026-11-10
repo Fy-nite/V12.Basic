@@ -104,12 +104,12 @@ try
         Check(crate != null, "crate element parsed from pak world.xml");
         if (crate != null)
         {
-            Check(crate.GetComponent("Transform") is TransformComponent tr && Math.Abs(tr.X - 1.0f) < 1e-4f, "crate Transform x=1");
+            Check(Math.Abs(crate.LocalTransform.Position.X - 1.0f) < 1e-4f, "crate transform x=1");
             Check(crate.GetComponent("mesh_data") is MeshComponent, "crate has Mesh component (name from XML attribute)");
             Check(crate.GetComponent("Collider") != null, "crate has Collider component");
         }
         var crate2 = worldRoot?.FindChildByName("crate2");
-        var boxItem = worldRoot?.FindChildByName("boxItem");
+        var boxItem = worldRoot?.FindChildByNameRecursive("boxItem");
         Check(crate2 != null && boxItem != null && boxItem.GetComponent("Mesh") != null, "template 'box' expanded from pak templates (boxItem present with component)");
 
         var resolver = root.Registry.Get<IAssetResolver>();
