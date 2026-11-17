@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using V12.Bindings;
 using V12.Components;
 using V12.Core;
@@ -15,6 +16,7 @@ void Check(bool cond, string label)
 }
 
 string work = Path.Combine(Path.GetTempPath(), $"v12pak_tests_{Guid.NewGuid():N}");
+var cacheDirectories = new List<string>();
 try
 {
     string sampleDir = Path.Combine(work, "sample");
@@ -67,6 +69,22 @@ try
     File.WriteAllText(Path.Combine(sampleDir, "scripts", "main.ct"), mainCt);
     File.Copy(typeof(TestGamePak).Assembly.Location, Path.Combine(sampleDir, "paks", "TestGamePak.dll"), true);
 
+    // Native libraries, one flattened next to the managed DLLs (a RID-specific
+    // publish) and one under runtimes/<rid>/native (a portable publish). The
+    // loader has to find both for the platform it runs on.
+    string nativeExtension = OperatingSystem.IsWindows() ? ".dll" : OperatingSystem.IsMacOS() ? ".dylib" : ".so";
+    string nativePrefix = OperatingSystem.IsWindows() ? "" : "lib";
+    string hostRid = RuntimeInformation.RuntimeIdentifier;
+
+    Directory.CreateDirectory(Path.Combine(sampleDir, "bin", "runtimes", hostRid, "native"));
+    Directory.CreateDirectory(Path.Combine(sampleDir, "bin", "runtimes", "plan9-x64", "native"));
+    File.WriteAllBytes(Path.Combine(sampleDir, "bin", nativePrefix + "flatnativetest" + nativeExtension), new byte[] { 1 });
+    File.WriteAllBytes(
+        Path.Combine(sampleDir, "bin", "runtimes", hostRid, "native", nativePrefix + "ridnativetest" + nativeExtension),
+        new byte[] { 2 });
+    File.WriteAllBytes(
+        Path.Combine(sampleDir, "bin", "runtimes", "plan9-x64", "native", "libwrongplatform.so"), new byte[] { 3 });
+
     string pakPath = Path.Combine(work, "game.v12pak");
 
     new GameRoot().BuildPak(sampleDir, pakPath);
@@ -86,14 +104,31 @@ try
         Check(reader.HasEntry("scripts/main.ct"), "reader indexed main.ct");
         string? xml = reader.ReadEntryText("worlds/DemoWorld/world.xml");
         Check(xml != null && xml.Contains("<World"), "ReadEntryText reads world.xml");
+
         string tempDir = reader.TempDirectory;
+        cacheDirectories.Add(tempDir);
+        Check(reader.ReusedCache == false, "first open extracted the pak");
+        Check(Directory.Exists(tempDir), "extraction directory exists while open");
+
         reader.Dispose();
-        Check(!Directory.Exists(tempDir), "reader Dispose removed temp dir");
+        Check(Directory.Exists(tempDir), "reader Dispose keeps the cache directory");
+
+        // Opening the same pak again must reuse that exact directory instead of
+        // extracting a second full copy (the old behaviour grew /tmp per launch).
+        using var again = new V12PakReader(pakPath);
+        Check(again.ReusedCache, "second open reused the cached extraction");
+        Check(string.Equals(again.TempDirectory, tempDir, StringComparison.Ordinal),
+            "cache directory is content-addressed, not GUID-random");
+        Check(again.HasEntry("assets/textures/crate.png"), "cached extraction still indexes entries");
+
+        string? cachedXml = again.ReadEntryText("worlds/DemoWorld/world.xml");
+        Check(cachedXml != null && cachedXml.Contains("<World"), "cached extraction serves entry text");
     }
 
     var root = new GameRoot();
     using (var result = root.LoadPak(pakPath, new V12PakOptions { LoadDlls = true, LoadContractScripts = true }))
     {
+        cacheDirectories.Add(result.Reader.TempDirectory);
         Check(result.LoadedWorlds.Count == 1, "LoadPak loaded 1 world");
         var world = result.LoadedWorlds[0];
         Check(root.Worlds.Contains(world), "world added to GameRoot.Worlds");
@@ -116,8 +151,21 @@ try
         Check(resolver is V12PakAssetResolver, "pak resolver registered as AssetResolver");
         string resolvedPng = resolver!.Resolve("v12://textures/crate.png");
         Check(File.Exists(resolvedPng), "v12://textures/crate.png resolves to a real file");
+
+        // Worlds authored for --game mode address assets by archive path
+        // ("v12://Assets/..."), not by the bare manifest key. That spelling used
+        // to fail inside a pak with "did not resolve to a file".
+        string resolvedByPath = resolver.Resolve("v12://assets/textures/crate.png");
+        Check(File.Exists(resolvedByPath), "v12://assets/textures/crate.png (archive path) resolves");
+
+        string resolvedMixedCase = resolver.Resolve("v12://Assets/Textures/Crate.PNG");
+        Check(File.Exists(resolvedMixedCase), "archive-path URIs resolve case-insensitively on Linux");
         using (var s = resolver.Open("v12://textures/crate.png"))
             Check(s != null && s.Length == png.Length, "v12://textures/crate.png opens with expected length");
+
+        using (var s = resolver.Open("v12://assets/textures/crate.png"))
+            Check(s != null && s.Length == png.Length, "archive-path URI opens with expected length");
+
         using (var s = resolver.Open("v12://scripts/player.lua"))
         {
             bool ok = s != null;
@@ -128,6 +176,18 @@ try
             }
             Check(ok, "v12://scripts/player.lua opens with expected text");
         }
+
+        // Native probing: a pak's own libraries must be findable on the platform
+        // it is running on, in both the flattened and the per-RID layout.
+        Check(V12PakLoader.TryFindNativeLibrary("flatnativetest", out string flatNative), "flattened native library found");
+        Check(File.Exists(flatNative) && flatNative.Contains("flatnativetest"), "flattened native points at the pak copy");
+
+        Check(V12PakLoader.TryFindNativeLibrary("ridnativetest", out string ridNative), "runtimes/<rid>/native library found");
+        Check(File.Exists(ridNative) && ridNative.Replace('\\', '/').Contains("/runtimes/" + hostRid + "/native/"),
+            "per-RID native points at the matching platform folder");
+
+        Check(!V12PakLoader.TryFindNativeLibrary("wrongplatform", out _), "another platform's RID folder is not probed");
+        Check(!V12PakLoader.TryFindNativeLibrary("definitelynotapaknative", out _), "unknown native library is not invented");
 
         Check(result.LoadedGamepaks == 2, "LoadDlls+LoadContractScripts loaded 2 gamepaks (1 DLL + 1 .ct)");
         var gp = root.Gamepaks.FindByName("TestGamePak");
@@ -168,11 +228,17 @@ try
                BlockedAssetKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "textures/crate.png" }
            }))
     {
+        cacheDirectories.Add(res2.Reader.TempDirectory);
         Check(res2.LoadedWorlds.Count == 1, "restricted load still loads worlds");
         Check(res2.SkippedAssets == 3, $"restricted load skipped 3 assets (got {res2.SkippedAssets})");
         var r2resolver = restricted.Registry.Get<IAssetResolver>();
         string resolved2 = r2resolver!.Resolve("v12://textures/crate.png");
         Check(resolved2 == "v12://textures/crate.png", "blocked asset key does not resolve");
+
+        // The archive-path lookup must not become a way around the blocklist.
+        string resolvedBlockedPath = r2resolver.Resolve("v12://assets/textures/crate.png");
+        Check(resolvedBlockedPath == "v12://assets/textures/crate.png",
+            "blocked asset does not resolve by archive path either");
         using var blockedStream = r2resolver.Open("v12://textures/crate.png");
         Check(blockedStream == null, "blocked asset does not open");
         Check(res2.SkippedGamepaks == 2, $"LoadDlls=false skipped gamepak DLL + Contract script (got {res2.SkippedGamepaks})");
@@ -188,6 +254,7 @@ try
     var badRoot = new GameRoot();
     using (var resBad = badRoot.LoadPak(badPakPath, new V12PakOptions { LoadContractScripts = true }))
     {
+        cacheDirectories.Add(resBad.Reader.TempDirectory);
         Check(resBad.LoadedGamepaks == 1, "bad script pak still registers gamepack at load");
         var broken = badRoot.Gamepaks.FindByName("broken");
         Check(broken is ContractGamepack, "broken.ct registered as Contract gamepack");
@@ -205,6 +272,7 @@ try
     var noWorlds = new GameRoot();
     using (var res3 = noWorlds.LoadPak(pakPath, new V12PakOptions { AllowWorldLoading = false }))
     {
+        cacheDirectories.Add(res3.Reader.TempDirectory);
         Check(res3.LoadedWorlds.Count == 0, "AllowWorldLoading=false loads no worlds");
         Check(noWorlds.Worlds.Count == 0, "GameRoot.Worlds untouched");
     }
@@ -218,6 +286,11 @@ catch (Exception ex)
 finally
 {
     try { if (Directory.Exists(work)) Directory.Delete(work, true); } catch { }
+
+    // The extraction cache is deliberately persistent, so the test removes the
+    // directories it created rather than leaving them behind.
+    foreach (string directory in cacheDirectories.Distinct(StringComparer.OrdinalIgnoreCase))
+        V12PakCache.Discard(directory);
 }
 
 Console.WriteLine(failures == 0 ? "\nALL TESTS PASSED" : $"\n{failures} TEST(S) FAILED");
