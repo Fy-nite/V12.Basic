@@ -9,6 +9,8 @@
     <V12EngineProject Condition="'$(V12EngineProject)' == ''">$(MSBuildThisFileDirectory)libs/V12/V12.csproj</V12EngineProject>
     <V12PakProject Condition="'$(V12PakProject)' == ''">$(MSBuildThisFileDirectory)libs/V12.Pak/V12.Pak.csproj</V12PakProject>
     <V12BindingsProject Condition="'$(V12BindingsProject)' == ''">$(MSBuildThisFileDirectory)libs/V12.Bindings/V12.Bindings.csproj</V12BindingsProject>
+    <V12PhysicsProject Condition="'$(V12PhysicsProject)' == ''">$(MSBuildThisFileDirectory)libs/V12.Physics/V12.Physics.csproj</V12PhysicsProject>
+    <V12GravityProject Condition="'$(V12GravityProject)' == ''">$(MSBuildThisFileDirectory)libs/V12.Gravity/V12.Gravity.csproj</V12GravityProject>
   </PropertyGroup>
 
   <!--

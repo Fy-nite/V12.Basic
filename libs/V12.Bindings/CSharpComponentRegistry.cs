@@ -248,6 +248,10 @@ namespace V12.Bindings
         public void Register(GameRoot? gameRoot)
         {
             Current = this;
+            // WorldML uses this before its assembly scan so a reloaded script
+            // type wins over the older generation still in the AppDomain.
+            ComponentTypeResolver.SetResolver(
+                name => TryGet(name, out var entry) ? entry.Type : null);
             if (gameRoot != null && gameRoot.Registry.Get<CSharpComponentRegistry>(ServiceName) == null)
                 gameRoot.Registry.Register(ServiceName, this);
         }

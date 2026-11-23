@@ -240,15 +240,26 @@ namespace V12.Core.Systems
                 else if (bodyType is PhysicsBodyType.Static or PhysicsBodyType.Kinematic)
                 {
                     // Static/kinematic: element transform drives the physics body.
-                    // Top-level kinematic bodies slide along walls via
-                    // BodyTestMotion so they don't clip through the world.
-                    // Nested kinematic bodies (e.g. grabbed boxes re-parented to a
-                    // hand, whose local transform is identity) are teleported.
+                    // Continuous movers (planets, platforms) are velocity-driven so
+                    // contacts see their surface speed; Bepu integrates the pose from
+                    // that velocity, so do not write the pose as well.
+                    // Everything else teleports, or slides along walls via
+                    // BodyTestMotion. Nested kinematic bodies (e.g. grabbed boxes
+                    // re-parented to a hand, whose local transform is identity) are
+                    // always teleported.
                     var lt = element.LocalTransform;
                     var current = bodyComp.Body.Position;
                     var desired = lt.Position;
 
-                    if (element.Parent == null)
+                    if (element.Parent == null && bodyComp.ContinuousKinematicMotion)
+                    {
+                        var delta = desired - current;
+                        if (delta.LengthSquared() > 1e-8f)
+                            _physics.MoveKinematic(bodyComp.Body, delta, deltaTime);
+                        else if (bodyComp.Body.LinearVelocity.LengthSquared() > 1e-8f)
+                            bodyComp.Body.LinearVelocity = Vector3.Zero;
+                    }
+                    else if (element.Parent == null)
                     {
                         var delta = desired - current;
                         if (delta.LengthSquared() > 1e-8f)
@@ -256,6 +267,12 @@ namespace V12.Core.Systems
                             var applied = _physics.MoveKinematic(bodyComp.Body, delta);
                             lt.Position = current + applied;
                             element.LocalTransform = lt;
+                        }
+                        else if (bodyComp.Body.LinearVelocity.LengthSquared() > 1e-8f)
+                        {
+                            // A body that has stopped must not keep last tick's
+                            // contact velocity, or it drags whatever rests on it.
+                            bodyComp.Body.LinearVelocity = Vector3.Zero;
                         }
                     }
                     else
@@ -269,12 +286,12 @@ namespace V12.Core.Systems
                     // Dynamic: driven by the physics backend.
                     // V12 only syncs XZ; the backend handles Y (gravity + jump).
                     bool jumped = false;
-                    if (loco != null)
+                    if (loco != null && bodyComp.SyncLocomotionVelocity)
                     {
                         if (loco.Velocity.Y > 0.1f)
                         {
                             // Jump: apply upward impulse (gravity then bends the arc).
-                            bodyComp.Body.AddForce(new Vector3(0, loco.Velocity.Y, 0));
+                            bodyComp.Body.AddImpulse(new Vector3(0, loco.Velocity.Y, 0));
                             loco.Velocity = new Vector3(loco.Velocity.X, 0, loco.Velocity.Z);
                             jumped = true;
                         }

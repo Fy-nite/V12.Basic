@@ -14,6 +14,8 @@
   <ItemGroup>
     <PackageReference Include="Serilog" Version="4.4.0" />
     <ProjectReference Include="$(V12EngineProject)" />
+    <ProjectReference Include="$(V12PhysicsProject)" />
+    <ProjectReference Include="$(V12GravityProject)" />
     <Compile Remove="libs/**" />
     <Compile Remove="libs\**" />
     <EmbeddedResource Remove="libs\**" />

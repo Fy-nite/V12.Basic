@@ -285,6 +285,41 @@ namespace V12.Bindings
             try { Add(typeof(System.Numerics.Vector3).Assembly); } catch { }
             try { Add(V12LinkedAssemblies.EngineAssembly); } catch { }
             try { Add(V12LinkedAssemblies.BasicAssembly); } catch { }
+
+            // Framework facades (System.Collections, System.Numerics.Vectors,
+            // netstandard) live in the trusted platform set even when they are
+            // not loaded yet. Live scripts routinely touch types from them
+            // through V12 method signatures, so they must be referenceable.
+            try
+            {
+                if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
+                {
+                    foreach (string path in tpa.Split(Path.PathSeparator))
+                    {
+                        if (string.IsNullOrWhiteSpace(path)) continue;
+                        string file = Path.GetFileNameWithoutExtension(path);
+                        if (file.StartsWith("Microsoft.CodeAnalysis", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        AddFile(path);
+                    }
+                }
+            }
+            catch { }
+
+            // Already-loaded framework and logging assemblies. Serilog is a
+            // package assembly, not part of the TPA, and ILogger appears in the
+            // public signatures scripts call through GameRoot.Log.
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                string n = assembly.GetName().Name ?? "";
+                if (n.StartsWith("System.", StringComparison.OrdinalIgnoreCase)
+                    || n is "System" or "netstandard" or "mscorlib"
+                    || n.Equals("Serilog", StringComparison.OrdinalIgnoreCase))
+                {
+                    Add(assembly);
+                }
+            }
+
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 string n = assembly.GetName().Name ?? "";
@@ -332,6 +367,22 @@ namespace V12.Bindings
             foreach (var n in names)
                 AddFile(Path.Combine(baseDirectory, n + ".dll"));
 
+            // Package assemblies beside the host are not part of the TPA, and
+            // their types show up in V12 public signatures (Serilog's ILogger,
+            // Prowl.Vector.Color from PaperPalette, and so on). A live script
+            // that so much as calls those APIs needs the reference.
+            try
+            {
+                foreach (var dll in Directory.GetFiles(baseDirectory, "*.dll"))
+                {
+                    string name = Path.GetFileNameWithoutExtension(dll);
+                    if (name.StartsWith("Microsoft.CodeAnalysis", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    AddFile(dll);
+                }
+            }
+            catch { }
+
             try
             {
                 foreach (var dll in Directory.GetFiles(baseDirectory, "*.dll"))
@@ -365,7 +416,12 @@ namespace V12.Bindings
             return name.Length == 0 ? "V12Scripts" : name;
         }
 
-        private static bool IsBuildOutput(string root, string file)
+        /// <summary>
+        /// True when <paramref name="file"/> sits under a build-output or VCS
+        /// folder (bin, obj, .v12, .git, node_modules). Used to keep the watch
+        /// loop from reloading on generated files.
+        /// </summary>
+        public static bool IsBuildOutput(string root, string file)
         {
             string relative = Path.GetRelativePath(root, file);
             var parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

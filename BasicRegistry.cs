@@ -7,10 +7,16 @@ namespace V12.Basic
     {
         public static void RegisterAll(GameRoot gameRoot)
         {
-            var physics = new V12.Core.Systems.PhysicsService();
+            // Registry order is update order. Gravity refreshes before the
+            // physics service steps, whether AutoStep is on or PhysicsLocomotion
+            // owns the step.
+            V12.Gravity.Systems.GravityRegistry.RegisterAll(gameRoot);
+
+            var physics = new V12.Physics.PhysicsService();
+            gameRoot.Registry.Register("PhysicsService", physics);
+
             gameRoot.Registry.Register("LocomotionSystem", new V12.Core.Systems.LocomotionSystem(gameRoot));
             gameRoot.Registry.Register("PhysicsLocomotionSystem", new V12.Core.Systems.PhysicsLocomotionSystem(gameRoot));
-            gameRoot.Registry.Register("PhysicsService", physics);
             gameRoot.Registry.Register("ScriptSystem", new V12.Core.Systems.ScriptSystem(gameRoot));
             gameRoot.Registry.Register("PickupSystem", new V12.Core.Systems.PickupSystem(gameRoot));
             gameRoot.Registry.Register("ButtonSystem", new V12.Core.Systems.ButtonSystem(gameRoot));

@@ -117,6 +117,7 @@ namespace V12.Bindings
             }
             Assembly = assembly;
             CSharpScriptImages.Remove(previousAssembly);
+            V12LinkedAssemblies.Remove(previousAssembly);
 
             // Live instances keep the old assembly; new instances use this one.
             try { previous?.Unload(); } catch { /* best effort */ }
@@ -163,6 +164,9 @@ namespace V12.Bindings
 
         private void OnFileChanged(object sender, FileSystemEventArgs e)
         {
+            if (CSharpScriptCompiler.IsBuildOutput(SourceDirectory, e.FullPath))
+                return;
+
             lock (_gate)
             {
                 _reloadRequested = true;
@@ -199,6 +203,7 @@ namespace V12.Bindings
             }
             try { context?.Unload(); } catch { /* best effort */ }
             CSharpScriptImages.Remove(Assembly);
+            V12LinkedAssemblies.Remove(Assembly);
             Assembly = null;
         }
     }

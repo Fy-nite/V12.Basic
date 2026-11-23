@@ -39,6 +39,18 @@ namespace V12.Bindings
             }
         }
 
+        /// <summary>
+        /// Unlink an assembly. Called when a collectible script generation is
+        /// replaced or disposed so the old assembly is not kept alive by this
+        /// static list.
+        /// </summary>
+        public static void Remove(Assembly? assembly)
+        {
+            if (assembly == null) return;
+            lock (Gate)
+                Extra.Remove(assembly);
+        }
+
         /// <summary>Every assembly linked into V12 Contract scripts (engine + V12.Basic + extras), de-duplicated.</summary>
         public static IReadOnlyList<Assembly> All
         {

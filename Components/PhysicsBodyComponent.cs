@@ -9,6 +9,11 @@ using V12.Core.Networking;
 
 namespace V12.Basic.Components
 {
+    /// <summary>
+    /// Attaches a backend physics body to an element. Placement currently assumes
+    /// a root-level element; a nested dynamic body is not transform-synced
+    /// relative to its parent, so keep simulated bodies at the world root.
+    /// </summary>
     [ComponentEntry("PHYSICS", "Physics Body", SortOrder = 3, Icon = "atom")]
     public class PhysicsBodyComponent : ComponentBase
     {
@@ -38,6 +43,23 @@ namespace V12.Basic.Components
 
         /// <summary>Gravity multiplier used when no <see cref="RigidBodyComponent"/> is present.</summary>
         public float GravityScale { get; set; } = 1f;
+
+        /// <summary>
+        /// When true, a top-level kinematic body is driven as continuous motion:
+        /// the engine publishes its step velocity and lets the backend integrate the
+        /// pose, so contacts see the surface speed and a rider is carried along.
+        /// Use it for planets, platforms and other scripted movers. Leave false for
+        /// bodies that must teleport or collide-and-slide (XR player, grabbed props).
+        /// </summary>
+        public bool ContinuousKinematicMotion { get; set; }
+
+        /// <summary>
+        /// When true (default) a <c>LocomotionComponent</c> writes its XZ velocity
+        /// into this dynamic body every tick. Set false for a vessel or vehicle
+        /// whose physics velocity must be preserved (orbital motion, spherical
+        /// gravity, scripted flight).
+        /// </summary>
+        public bool SyncLocomotionVelocity { get; set; } = true;
 
         private Vector3 _pendingVelocity;
 
@@ -80,11 +102,24 @@ namespace V12.Basic.Components
         [BsonIgnore]
         public bool IsOnFloor => Body?.IsOnFloor ?? false;
 
-        /// <summary>Applies an impulse/force to the runtime body, if it exists.</summary>
+        /// <summary>Applies a continuous force (N) for the next physics step.</summary>
         public void AddForce(Vector3 force) => Body?.AddForce(force);
 
-        /// <summary>Applies an angular impulse to the runtime body, if it exists.</summary>
+        /// <summary>Applies an instantaneous linear impulse (kg*m/s).</summary>
+        public void AddImpulse(Vector3 impulse) => Body?.AddImpulse(impulse);
+
+        /// <summary>Applies a continuous torque (N*m) for the next physics step.</summary>
         public void AddTorque(Vector3 torque) => Body?.AddTorque(torque);
+
+        /// <summary>Applies an instantaneous angular impulse (kg*m^2/s).</summary>
+        public void AddAngularImpulse(Vector3 impulse) => Body?.AddAngularImpulse(impulse);
+
+        /// <summary>Runtime mass. Changing it recomputes the body inertia from its shape.</summary>
+        public float BodyMass
+        {
+            get => Body?.Mass ?? 0f;
+            set { if (Body != null) Body.Mass = value; }
+        }
 
         /// <summary>
         /// True when this element was replicated from the host (received via WorldSync
