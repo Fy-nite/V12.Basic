@@ -15,7 +15,7 @@ namespace V12.Basic.Components
     /// relative to its parent, so keep simulated bodies at the world root.
     /// </summary>
     [ComponentEntry("PHYSICS", "Physics Body", SortOrder = 3, Icon = "atom")]
-    public class PhysicsBodyComponent : ComponentBase
+    public class PhysicsBodyComponent : ComponentBase, IFloatingOriginAware
     {
         /// <summary>
         /// The runtime physics body instance, provided by the active physics backend.
@@ -185,6 +185,14 @@ namespace V12.Basic.Components
         }
 
         private static long NowMs() => DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+
+        /// <summary>Move the backend body and any cached held pose into the new
+        /// bubble frame. Relative positions and velocities stay unchanged.</summary>
+        public void OnOriginShift(Vector3 delta)
+        {
+            Body?.Position -= delta;
+            HeldPosition -= delta;
+        }
 
         public override IWorldElement BuildUI()
         {

@@ -111,6 +111,8 @@ namespace V12.Core.Systems
                             mass: 1f,
                             type: PhysicsBodyType.Kinematic,
                             gravityScale: bodyComp.GravityScale);
+                        if (shape == MeshShape.Custom)
+                            desc.Mesh = FindColliderMesh(element);
                         bodyComp.Body = _physics.CreateBody(desc);
                     }
                     else
@@ -152,6 +154,8 @@ namespace V12.Core.Systems
                                 mass: 1f,
                                 type: PhysicsBodyType.Kinematic,
                                 gravityScale: bodyComp.GravityScale);
+                            if (shape == MeshShape.Custom)
+                                desc.Mesh = FindColliderMesh(element);
                             bodyComp.Body = _physics.CreateBody(desc);
                         }
                         else
@@ -182,7 +186,7 @@ namespace V12.Core.Systems
                 var loco = element.GetComponent<LocomotionComponent>();
                 var playerComp = element.GetComponent<PlayerComponent>();
                 var rigid = element.GetComponent<RigidBodyComponent>();
-                var bodyType = ResolveBodyType(bodyComp, loco, element);
+                var bodyType = ResolveBodyType(bodyComp, loco, rigid, element);
 
                 // Create a physics body for every element with a PhysicsBodyComponent,
                 // regardless of whether it also has a LocomotionComponent.
@@ -199,12 +203,14 @@ namespace V12.Core.Systems
                         shape, size,
                         mass: rigid?.Mass ?? 1f,
                         type: bodyType,
-                        isTrigger: false,
+                        isTrigger: collider?.IsTrigger ?? false,
                         gravityScale: rigid?.GravityScale ?? bodyComp.GravityScale,
                         linearDamping: rigid?.LinearDamping ?? 0f,
                         angularDamping: rigid?.AngularDamping ?? 0f,
                         canSleep: rigid?.CanSleep ?? true,
                         lockRotation: bodyComp.LockRotation);
+                    if (shape == MeshShape.Custom)
+                        desc.Mesh = FindColliderMesh(element);
                     bodyComp.Body = _physics.CreateBody(desc);
                     bodyComp.ApplyPendingVelocity();
 
@@ -347,19 +353,42 @@ namespace V12.Core.Systems
         }
 
         /// <summary>
+        /// Custom colliders need a triangle payload. Prefer the element's
+        /// MeshComponent (the authored custom mesh); fall back to any other mesh
+        /// renderable so model-backed colliders work too.
+        /// </summary>
+        private static IMeshRenderable? FindColliderMesh(IWorldElement element)
+        {
+            var mesh = element.GetComponent<MeshComponent>();
+            if (mesh != null) return mesh;
+            return element.GetComponent<IMeshRenderable>();
+        }
+
+        /// <summary>
         /// Resolves the effective body type. Legacy scenes expressed the character
         /// controller as a kinematic body plus a LocomotionComponent on a root
         /// element; that still maps to <see cref="PhysicsBodyType.Character"/>.
         /// </summary>
         private static PhysicsBodyType ResolveBodyType(
-            PhysicsBodyComponent bodyComp, LocomotionComponent? loco, IWorldElement element)
+            PhysicsBodyComponent bodyComp, LocomotionComponent? loco,
+            RigidBodyComponent? rigid, IWorldElement element)
         {
-            if (bodyComp.BodyType != PhysicsBodyType.Kinematic)
-                return bodyComp.BodyType;
+            bool legacyCharacter = loco != null && element.Parent == null;
 
-            return loco != null && element.Parent == null
-                ? PhysicsBodyType.Character
-                : PhysicsBodyType.Kinematic;
+            if (bodyComp.BodyType != PhysicsBodyType.Dynamic)
+            {
+                return bodyComp.BodyType == PhysicsBodyType.Kinematic && legacyCharacter
+                    ? PhysicsBodyType.Character
+                    : bodyComp.BodyType;
+            }
+
+            // RigidBodyComponent.IsKinematic predates PhysicsBodyComponent.BodyType.
+            // Honor it when the newer property is still at its default so legacy
+            // scenes keep working; an explicit BodyType always wins.
+            if (rigid?.IsKinematic == true)
+                return legacyCharacter ? PhysicsBodyType.Character : PhysicsBodyType.Kinematic;
+
+            return PhysicsBodyType.Dynamic;
         }
 
         private static long AgeMs(long epochMs)
