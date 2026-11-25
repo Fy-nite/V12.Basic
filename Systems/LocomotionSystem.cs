@@ -76,6 +76,10 @@ namespace V12.Core.Systems
                 var loco = element.GetComponent<LocomotionComponent>();
                 if (loco == null) continue;
 
+                // A custom controller owns the velocity. This legacy system only
+                // drives content that opted into the host's named move actions.
+                if (loco.UseExternalVelocity) continue;
+
                 var bodyComponent = element.GetComponent<PhysicsBodyComponent>();
                 // The XR character controller (kinematic body + loco) is driven
                 // entirely by PlayerComponent (head-relative velocity) and

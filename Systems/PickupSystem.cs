@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Numerics;
 using V12.Basic.Components;
+using V12.Basic.Grabbing;
 using V12.Components;
 using V12.Core.Core.Interfaces;
 using V12.Core.Input;
@@ -42,6 +43,11 @@ namespace V12.Core.Systems
         private const float RayLength = 20f;
         private const float GrabDistance = 2.5f;
 
+        // The newer GrabberComponent owns grabbing when it is present. Keep the
+        // legacy interact path from fighting it for the same input and body.
+        private float _grabberProbeTimer;
+        private bool _grabberOwnsInput;
+
         public PickupSystem(GameRoot gameRoot)
         {
             _gameRoot = gameRoot;
@@ -71,6 +77,18 @@ namespace V12.Core.Systems
         public void Update(float deltaTime)
         {
             if (_physics == null) return;
+
+            if (!_grabberOwnsInput)
+            {
+                _grabberProbeTimer -= deltaTime;
+                if (_grabberProbeTimer <= 0f)
+                {
+                    _grabberProbeTimer = 0.5f;
+                    _grabberOwnsInput =
+                        _gameRoot.FindElementWithComponent<GrabberComponent>() != null;
+                }
+            }
+            if (_grabberOwnsInput) return;
 
             var player = FindPlayer();
             if (player == null) return;

@@ -24,6 +24,15 @@ namespace V12.Basic.Components
         public float LookSensitivity { get; internal set; }
         public bool CanJump { get; set; } = true;
         public float Acceleration { get; set; } = 0f;
+
+        /// <summary>
+        /// When true the legacy named-action LocomotionSystem leaves XZ velocity
+        /// alone. Custom controllers, XR rigs and physics samples own the value
+        /// and write it directly; without this the legacy system would zero it
+        /// every tick when the host does not register its named move actions.
+        /// </summary>
+        public bool UseExternalVelocity { get; set; }
+
         public float VRMoveSpeed { get; internal set; }
         public bool VRSmoothLocomotion { get; internal set; }
         public bool EnableHandTracking { get; internal set; }
