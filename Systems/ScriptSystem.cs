@@ -85,6 +85,23 @@ namespace V12.Core.Systems
                 }
                 finally { world.Lock.ExitReadLock(); }
             }
+
+            // Replica worlds tick their opt-in components on a client, so their
+            // scripts are live there too. Collect them as well, or hot reload
+            // and on_action never reach a scripted object on a client.
+            foreach (var session in gameRoot.WorldManager.Sessions)
+            {
+                if (session.Applied.Simulated || !session.Applied.Hydrated) continue;
+                if (!session.SimulateRemoteWorld) continue;
+                var world = session.World;
+                if (!world.TickingEnabled) continue;
+                world.Lock.EnterReadLock();
+                try
+                {
+                    CollectScripts(world.Root);
+                }
+                finally { world.Lock.ExitReadLock(); }
+            }
         }
 
         private void CollectScripts(IReadOnlyList<IWorldElement> elements)

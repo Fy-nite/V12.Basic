@@ -12,10 +12,6 @@ namespace V12.Core.Systems
 {
     public class PhysicsLocomotionSystem : IGameService
     {
-        /// <summary>Seconds after which a held element whose pose stream went silent
-        /// is released (the holding client vanished) and simulation resumes.</summary>
-        private const long GrabHoldTimeoutMs = 3000;
-
         private GameRoot _gameRoot;
         private IPhysicsBackend? _physics;
 
@@ -52,50 +48,61 @@ namespace V12.Core.Systems
             if (!_physics.AutoStep)
                 _physics.Step(deltaTime);
 
-            // Process the active ticking worlds (a host can pause a world with TickingEnabled = false)
-            foreach (var world in _gameRoot.ActiveWorlds)
+            // Process every hydrated session. A client's world is not in
+            // ActiveWorlds, but it still needs bodies: dynamic ones for the
+            // elements it simulates, kinematic followers for everything else.
+            foreach (var session in _gameRoot.WorldManager.Sessions)
             {
+                if (!session.Applied.Hydrated) continue;
+
+                bool active = session.Applied.Simulated;
+                bool replica = !active
+                    && session.Authority == WorldAuthority.Remote
+                    && session.SimulateRemoteWorld;
+                if (!active && !replica) continue;
+
+                var world = session.World;
                 if (!world.TickingEnabled) continue;
-                ProcessWorld(world, deltaTime);
+                ProcessWorld(world, session, deltaTime);
             }
         }
 
-        private void ProcessWorld(World world, float deltaTime)
+        private void ProcessWorld(World world, WorldSession session, float deltaTime)
         {
-
             foreach (var element in world.Enumerate())
             {
                 var bodyComp = element.GetComponent<PhysicsBodyComponent>();
                 if (bodyComp == null)
                     continue;
 
+                // Authority is per element and can change at runtime (grab,
+                // release, reclaim). Rebuild the body when the role flips rather
+                // than converting a dynamic body into a kinematic follower in
+                // place, which would lose the inertia the dynamic body needs.
+                bool replicated = !session.IsSimulatedLocally(element);
+                if (bodyComp.IsReplicated != replicated)
+                {
+                    if (bodyComp.Body != null)
+                    {
+                        _physics!.DestroyBody(bodyComp.Body);
+                        bodyComp.Body = null;
+                    }
+                    bodyComp.IsReplicated = replicated;
+                    _airStates.Remove(element.Id);
+                }
+
                 // Host-replicated body: never simulate locally. Create a kinematic
                 // follower so the client keeps a collidable presence, and drive it
-                // from the host-authoritative element pose each tick.
+                // from the authoritative element pose each tick.
                 if (bodyComp.IsReplicated)
                 {
-                    // Stale client grab (holder vanished): resume host-driven following.
-                    if (bodyComp.ClientHeld && AgeMs(bodyComp.LastGrabMoveMs) > GrabHoldTimeoutMs)
-                        bodyComp.ClientHeld = false;
-
                     Vector3 trans;
                     Quaternion rot;
-                    if (bodyComp.ClientHeld)
+                    var wt = element.WorldTransform;
+                    if (!Matrix4x4.Decompose(wt, out _, out rot, out trans))
                     {
-                        // A remote client drives this element: follow its pose
-                        // instead of the host's (the holding client's local
-                        // PickupSystem writes the same pose, so no fight).
-                        trans = bodyComp.HeldPosition;
-                        rot = bodyComp.HeldRotation == default ? Quaternion.Identity : bodyComp.HeldRotation;
-                    }
-                    else
-                    {
-                        var wt = element.WorldTransform;
-                        if (!Matrix4x4.Decompose(wt, out _, out rot, out trans))
-                        {
-                            trans = element.LocalTransform.Position;
-                            rot = element.LocalTransform.Rotation;
-                        }
+                        trans = element.LocalTransform.Position;
+                        rot = element.LocalTransform.Rotation;
                     }
 
                     if (bodyComp.Body == null)
@@ -123,65 +130,10 @@ namespace V12.Core.Systems
                     continue;
                 }
 
-                // Client-held element on the host (a remote client grabbed it):
-                // pause local simulation and mirror the client's pose into the
-                // body and element transform so the host renders the grab and
-                // the pose replicates to every other peer.
-                if (bodyComp.ClientHeld)
-                {
-                    if (AgeMs(bodyComp.LastGrabMoveMs) > GrabHoldTimeoutMs)
-                    {
-                        // Holder vanished — release and resume host simulation.
-                        bodyComp.ClientHeld = false;
-                        // Restore the body we flipped to kinematic while held.
-                        if (bodyComp.Body != null && !bodyComp.Body.IsDynamic)
-                            bodyComp.Body.SetKinematic(false);
-                    }
-                    else
-                    {
-                        var heldPos = bodyComp.HeldPosition;
-                        var heldRot = bodyComp.HeldRotation == default ? Quaternion.Identity : bodyComp.HeldRotation;
-
-                        if (bodyComp.Body == null)
-                        {
-                            var collider = element.GetComponent<ColliderComponent>();
-                            var shape = collider?.Shape ?? MeshShape.Box;
-                            var size = collider != null
-                                ? new Vector3(collider.Width, collider.Height, collider.Depth)
-                                : new Vector3(1f, 2f, 1f);
-                            var desc = new PhysicsBodyDesc(
-                                heldPos, heldRot, shape, size,
-                                mass: 1f,
-                                type: PhysicsBodyType.Kinematic,
-                                gravityScale: bodyComp.GravityScale);
-                            if (shape == MeshShape.Custom)
-                                desc.Mesh = FindColliderMesh(element);
-                            bodyComp.Body = _physics.CreateBody(desc);
-                        }
-                        else
-                        {
-                            // Flip the body to kinematic while held so position
-                            // writes stick (dynamic bodies only take velocity
-                            // writes) and gravity can't accumulate.
-                            if (bodyComp.Body.IsDynamic)
-                                bodyComp.Body.SetKinematic(true);
-                            bodyComp.Body.Position = heldPos;
-                            bodyComp.Body.Rotation = heldRot;
-                            bodyComp.Body.LinearVelocity = Vector3.Zero;
-                        }
-
-                        // Element pose follows the client. LocalTransform marks
-                        // the element dirty, so WorldElementUpdate carries the
-                        // held pose to every peer.
-                        element.LocalTransform = new TRS
-                        {
-                            Position = heldPos,
-                            Rotation = heldRot,
-                            Scale = Vector3.One
-                        };
-                        continue;
-                    }
-                }
+                // Client-held element on the host is gone: a grabbed element is
+                // delegated to the grabbing client through EntityAuthorityStore,
+                // which makes the element a replica here and takes the follower
+                // branch above. The old ClientHeld RPC path was dead in sessions.
 
                 var loco = element.GetComponent<LocomotionComponent>();
                 var playerComp = element.GetComponent<PlayerComponent>();
@@ -389,12 +341,6 @@ namespace V12.Core.Systems
                 return legacyCharacter ? PhysicsBodyType.Character : PhysicsBodyType.Kinematic;
 
             return PhysicsBodyType.Dynamic;
-        }
-
-        private static long AgeMs(long epochMs)
-        {
-            var now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-            return now - epochMs;
         }
     }
 }

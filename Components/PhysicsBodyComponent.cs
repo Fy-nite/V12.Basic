@@ -123,75 +123,44 @@ namespace V12.Basic.Components
 
         /// <summary>
         /// True when this element was replicated from the host (received via WorldSync
-        /// or a WorldDelta create). Clients must not locally simulate replicated
-        /// bodies — they run as kinematic followers driven by the host's transform.
-        /// Runtime-only, never serialized back.
+        /// or a WorldDelta create). Followers on a client must not locally simulate
+        /// replicated bodies — they run as kinematic followers driven by the pose of
+        /// whichever peer simulates the element. Runtime-only, never serialized.
         /// </summary>
         [BsonIgnore]
         public bool IsReplicated { get; set; }
 
-        // ── Client-held grab state ──────────────────────────────────────────
-        // Client-authoritative grab: a remote client drives this element while
-        // held, and every peer (host included) follows the pose carried here
-        // instead of local simulation / host transforms. The holding client
-        // streams poses via the RPC channel; the host pauses simulation of the
-        // element until it is released or the stream goes stale. Runtime-only.
-        [BsonIgnore]
-        public bool ClientHeld { get; set; }
-
-        [BsonIgnore]
-        public System.Numerics.Vector3 HeldPosition { get; set; }
-
-        [BsonIgnore]
-        public System.Numerics.Quaternion HeldRotation { get; set; }
-
-        /// <summary>Epoch milliseconds of the last GrabMove received (staleness watchdog).</summary>
-        [BsonIgnore]
-        public long LastGrabMoveMs { get; set; }
-
         public PhysicsBodyComponent() { }
 
-        /// <summary>Remote: a client grabbed this element — the host pauses its simulation.</summary>
-        [Remote]
-        public void Grab()
+        /// <summary>
+        /// Release the backend body. Without this the simulation keeps the body
+        /// alive (and colliding) after its element or component is gone, which is
+        /// the leak you get when a world is closed.
+        /// </summary>
+        public override void OnDetach(IWorldElement worldElement)
         {
-            ClientHeld = true;
-            LastGrabMoveMs = NowMs();
+            if (Body is not null)
+            {
+                try
+                {
+                    GameRoot.Instance?.Registry.Get<IPhysicsBackend>()?.DestroyBody(Body);
+                }
+                catch
+                {
+                    // Teardown must not throw: the simulation may already be gone.
+                }
+
+                Body = null;
+            }
+
+            base.OnDetach(worldElement);
         }
 
-        /// <summary>Remote: the holding client's latest world pose.</summary>
-        [Remote]
-        public void GrabMove(float x, float y, float z, float qx, float qy, float qz, float qw)
-        {
-            HeldPosition = new System.Numerics.Vector3(x, y, z);
-            HeldRotation = new System.Numerics.Quaternion(qx, qy, qz, qw);
-            LastGrabMoveMs = NowMs();
-        }
-
-        /// <summary>Remote: the holding client released the element at this pose.</summary>
-        [Remote]
-        public void Release(float x, float y, float z, float qx, float qy, float qz, float qw)
-        {
-            HeldPosition = new System.Numerics.Vector3(x, y, z);
-            HeldRotation = new System.Numerics.Quaternion(qx, qy, qz, qw);
-            LastGrabMoveMs = NowMs();
-            ClientHeld = false;
-
-            // On the host (non-replicated element) restore the body we flipped to
-            // kinematic while held so simulation resumes. Replicated followers on
-            // clients stay kinematic — they follow the host's transform.
-            if (!IsReplicated)
-                Body?.SetKinematic(false);
-        }
-
-        private static long NowMs() => DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-
-        /// <summary>Move the backend body and any cached held pose into the new
-        /// bubble frame. Relative positions and velocities stay unchanged.</summary>
+        /// <summary>Move the backend body into the new bubble frame. Relative
+        /// positions and velocities stay unchanged.</summary>
         public void OnOriginShift(Vector3 delta)
         {
             Body?.Position -= delta;
-            HeldPosition -= delta;
         }
 
         public override IWorldElement BuildUI()

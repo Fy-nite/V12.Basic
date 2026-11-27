@@ -14,6 +14,12 @@ namespace V12.Bindings
     /// Attach it with <see cref="ContractComponentRegistry.Attach"/> or by adding
     /// it from a script via <c>V12.Components.AddContractComponent(id, type)</c>.
     /// </summary>
+    /// <summary>
+    /// Mod components are gameplay logic, so they run for whoever simulates the
+    /// element: the host for host-owned objects, the owning client for a grabbed
+    /// one. Writes it makes are last-write-wins via SyncValue; host-owned
+    /// transforms still get corrected.
+    /// </summary>
     public sealed class ContractComponent : ComponentBase
     {
         private readonly ContractComponentRegistry.TypeEntry _entry;
@@ -95,6 +101,12 @@ namespace V12.Bindings
             {
                 V12Script.SetOwner(worldElement.Id);
                 _entry.Invoke(_entry.OnDetach, _handle, worldElement.Id);
+
+                // Release the host root taken in Allocate. The object is
+                // unreachable once the component is gone, so the VM collector can
+                // reclaim it instead of holding every ever-created instance.
+                _entry.Runtime.UnpinHandle(_handle);
+                _handle = null;
             }
             base.OnDetach(worldElement);
         }

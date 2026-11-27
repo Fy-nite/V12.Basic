@@ -494,9 +494,30 @@ namespace V12.Basic.Grabbing
             hit.Body.AngularVelocity = Vector3.Zero;
 
             _held[hand] = state;
+
+            // A replicated element is not ours to simulate yet. Ask the host; the
+            // grant flips it to a locally simulated body and the grab keeps
+            // working from there.
+            SimulationAuthority.Claim(GameRoot.Instance, hit.Element);
+
             if (grabbable.Owner != null)
                 grabbable.NotifyGrabbed(this, hit.Element);
             try { Grabbed?.Invoke(this, grabbable); } catch { }
+        }
+
+        /// <summary>
+        /// Keep the held state pointing at the body the component currently owns.
+        /// A grant from the host replaces the follower with a dynamic body.
+        /// </summary>
+        private static void ResyncHeldBody(HeldState state)
+        {
+            var live = state.Element?.GetComponent<PhysicsBodyComponent>()?.Body;
+            if (live is null || ReferenceEquals(live, state.Body)) return;
+
+            live.GravityScale = 0f;
+            live.LockRotation = state.SavedLockRotation;
+            live.LinearVelocity = Vector3.Zero;
+            state.Body = live;
         }
 
         private void UpdateHeld(float deltaTime)
@@ -511,6 +532,11 @@ namespace V12.Basic.Grabbing
                 var state = _held[hand];
                 if (state == null)
                     continue;
+
+                // The backend body is rebuilt when the host grants authority (the
+                // element flips from follower to simulated), so follow the live
+                // body instead of writing through a destroyed handle.
+                ResyncHeldBody(state);
 
                 if (state.Body.IsCharacterController)
                 {
@@ -633,6 +659,9 @@ namespace V12.Basic.Grabbing
             var body = state.Body;
             body.GravityScale = state.SavedGravityScale;
             body.LockRotation = state.SavedLockRotation;
+
+            // Hand the element back to the host so it resumes simulation.
+            SimulationAuthority.Release(GameRoot.Instance, state.Element);
 
             if (throwHeld)
             {

@@ -21,18 +21,10 @@ namespace V12.Core.Systems
         private IWorldElement _originalParent;
         private Vector3 _grabOffset;
 
-        // Client-authoritative grab of a host-replicated element: while set, the
-        // client drives the element locally and streams poses to the host via the
-        // RPC channel (see PhysicsBodyComponent.[Remote] Grab/GrabMove/Release).
-        private bool _replicatedGrab;
-        private Vector3 _lastSentPose;
-
-        /// <summary>Minimum pose delta before another GrabMove RPC is sent.</summary>
-        private const float GrabMoveEpsilon = 0.002f;
-        /// <summary>Re-issue the Grab RPC at least this often so a dropped
-        /// unreliable RPC self-heals instead of leaving the host simulating.</summary>
-        private const long GrabRepublishMs = 1000;
-        private long _lastGrabRepublishMs;
+        // Grabbing a replicated element: this peer is not the simulating user yet,
+        // so it drives the body locally for responsiveness and asks the host for
+        // authority. Once granted, the element ticks, steps and replicates here.
+        private bool _remoteGrab;
 
         // Shared with main thread for laser visual
         public volatile bool HasRay;
@@ -142,14 +134,32 @@ namespace V12.Core.Systems
                     // (ray end, 20m out) would yank it to the camera. Once grabbed,
                     // anchor to the clamped aim point instead of the hit point.
                     var followPos = origin + direction * GrabDistance + _grabOffset;
+
+                    // The body is rebuilt when the host grants authority (the role
+                    // flips from follower to dynamic), so re-resolve it instead of
+                    // writing through a destroyed handle.
+                    var livePbc = _grabbedElement?.GetComponent<PhysicsBodyComponent>();
+                    if (livePbc?.Body != null && !ReferenceEquals(livePbc.Body, _grabbedBody))
+                    {
+                        _grabbedBody = livePbc.Body;
+                        _grabbedBody.SetKinematic(true);
+                        _grabbedBody.LinearVelocity = Vector3.Zero;
+                    }
+
                     _grabbedBody.Position = followPos;
                     _grabbedBody.LinearVelocity = Vector3.Zero;
 
-                    if (_replicatedGrab && _grabbedElement != null)
+                    // The element pose is the render pose and, on a granted
+                    // element, the pose the session replicates. Keeping it current
+                    // every tick means the first update after a grant is correct.
+                    if (_grabbedElement != null)
                     {
-                        var pbc = _grabbedElement.GetComponent<PhysicsBodyComponent>();
-                        if (pbc != null)
-                            PublishGrabbedPose(pbc, followPos);
+                        _grabbedElement.LocalTransform = new TRS
+                        {
+                            Position = followPos,
+                            Rotation = _grabbedBody.Rotation,
+                            Scale = Vector3.One
+                        };
                     }
                 }
                 else if (hitBody != null && CanGrab(hitBody, hitElement))
@@ -161,23 +171,25 @@ namespace V12.Core.Systems
                     _grabbedBody.LinearVelocity = Vector3.Zero;
 
                     _grabbedElement = hitElement;
-                    var pbc = hitElement?.GetComponent<PhysicsBodyComponent>();
-                    _replicatedGrab = pbc != null && pbc.IsReplicated;
                     _originalParent = null;
+                    _remoteGrab = SimulationAuthority.NeedsClaim(_gameRoot, hitElement);
 
-                    if (_replicatedGrab)
+                    if (_remoteGrab)
                     {
-                        // Client-authoritative grab of a host-owned element: drive
-                        // it locally and tell the host to pause simulation. The
-                        // host mirrors our poses and relays them to every peer.
-                        pbc.ClientHeld = true;
-                        pbc.HeldPosition = bodyPos;
-                        pbc.HeldRotation = _grabbedBody.Rotation;
-                        pbc.LastGrabMoveMs = NowMs();
-                        _lastSentPose = new Vector3(float.NaN, float.NaN, float.NaN);
-                        _lastGrabRepublishMs = 0;
-                        RpcDispatcher.CallOn(_gameRoot, _grabbedElement, "Grab");
-                        PublishGrabbedPose(pbc, bodyPos);
+                        // Ask the host to make this peer the simulating user. The
+                        // body is driven locally in the meantime, so the grab feels
+                        // immediate; a denied claim simply never arrives.
+                        SimulationAuthority.Claim(_gameRoot, hitElement);
+
+                        if (hitElement != null)
+                        {
+                            hitElement.LocalTransform = new TRS
+                            {
+                                Position = bodyPos,
+                                Rotation = _grabbedBody.Rotation,
+                                Scale = Vector3.One
+                            };
+                        }
                     }
                     else if (_grabbedElement != null && player.GetComponent<VRPlayerComponent>() != null)
                     {
@@ -208,27 +220,27 @@ namespace V12.Core.Systems
             }
             else if (_grabbedBody != null)
             {
-                if (_replicatedGrab && _grabbedElement != null)
+                if (_remoteGrab && _grabbedElement != null)
                 {
-                    var pbc = _grabbedElement.GetComponent<PhysicsBodyComponent>();
-                    if (pbc != null)
+                    var finalPos = _grabbedBody.Position;
+                    var finalRot = _grabbedBody.Rotation;
+
+                    // Drop the held pose and hand the element back to the host,
+                    // which resumes simulation from exactly here.
+                    _grabbedElement.LocalTransform = new TRS
                     {
-                        var finalPos = _grabbedBody.Position;
-                        var finalRot = _grabbedBody.Rotation;
-                        pbc.ClientHeld = false;
-                        pbc.HeldPosition = finalPos;
-                        pbc.HeldRotation = finalRot;
-                        pbc.LastGrabMoveMs = NowMs();
-                        // Tell the host where we let go; it resumes simulation
-                        // from this pose (the follower stays kinematic here and
-                        // goes back to host-driven following).
-                        RpcDispatcher.CallOn(_gameRoot, _grabbedElement, "Release",
-                            finalPos.X, finalPos.Y, finalPos.Z,
-                            finalRot.X, finalRot.Y, finalRot.Z, finalRot.W);
-                    }
+                        Position = finalPos,
+                        Rotation = finalRot,
+                        Scale = Vector3.One
+                    };
+                    _grabbedBody.SetKinematic(false);
+                    _grabbedBody.LinearVelocity = Vector3.Zero;
+
+                    SimulationAuthority.Release(_gameRoot, _grabbedElement);
+
                     _grabbedElement = null;
                     _grabbedBody = null;
-                    _replicatedGrab = false;
+                    _remoteGrab = false;
                 }
                 else
                 {
@@ -259,7 +271,7 @@ namespace V12.Core.Systems
                         _originalParent = null;
                     }
                     _grabbedBody = null;
-                    _replicatedGrab = false;
+                    _remoteGrab = false;
                 }
             }
         }
@@ -274,39 +286,6 @@ namespace V12.Core.Systems
                 return !pbc.IsKinematic;
             return body.IsDynamic;
         }
-
-        /// <summary>Update the shared grab state on the holding client and stream
-        /// the pose to the host when it moved enough (unreliable RPCs that drop
-        /// self-heal on the next move; the host watchdog handles a vanished holder).</summary>
-        private void PublishGrabbedPose(PhysicsBodyComponent pbc, Vector3 followPos)
-        {
-            long now = NowMs();
-            var rot = _grabbedBody.Rotation;
-
-            // Keep the local render + follower in sync even before the host
-            // relays: the element's LocalTransform is the render pose.
-            _grabbedElement.LocalTransform = new TRS
-            {
-                Position = followPos,
-                Rotation = rot,
-                Scale = Vector3.One
-            };
-
-            pbc.HeldPosition = followPos;
-            pbc.HeldRotation = rot;
-            pbc.LastGrabMoveMs = now;
-
-            if (Vector3.Distance(followPos, _lastSentPose) >= GrabMoveEpsilon || now - _lastGrabRepublishMs >= GrabRepublishMs)
-            {
-                _lastSentPose = followPos;
-                _lastGrabRepublishMs = now;
-                RpcDispatcher.CallOn(_gameRoot, _grabbedElement, "GrabMove",
-                    followPos.X, followPos.Y, followPos.Z,
-                    rot.X, rot.Y, rot.Z, rot.W);
-            }
-        }
-
-        private static long NowMs() => System.DateTime.UtcNow.Ticks / System.TimeSpan.TicksPerMillisecond;
 
         private IWorldElement? FindPlayer()
         {

@@ -65,6 +65,11 @@ namespace V12.Bindings
                     return null;
                 }
 
+                // Root it before the constructor: the constructor can allocate and
+                // trigger a collection, and the handle is held by CLR code that the
+                // interpreter's stack scan cannot see.
+                Runtime.PinHandle(handle);
+
                 if (Ctor != null)
                     Runtime.CallMethod<object?>(Ctor.QualifiedName, handle);
                 return handle;
